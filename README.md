@@ -20,7 +20,7 @@ Every output can be differentiated analytically with respect to all 23 inputs
 forced transition locations), making Bora suitable both as a standalone
 optimization kernel and as a differentiable airfoil-analysis module inside
 larger aero tools. Outputs match Python NeuralFoil 0.3.3 to floating-point
-precision (verified by golden-value tests) and all eight upstream network
+precision (verified by reference-value tests) and all eight upstream network
 sizes (`xxsmall` ... `xxxlarge`) are supported.
 
 ## Quick Start

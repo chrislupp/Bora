@@ -32,6 +32,7 @@ include(CMakePackageConfigHelpers)
 option(BUILD_TESTS "Build unit and integration tests" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
 option(BORA_NATIVE_ARCH "Enable native architecture optimizations (-march=native)" ON)
+option(BORA_BUILD_PHILOTE "Build the Philote discipline library and server" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -65,6 +66,19 @@ target_compile_definitions(project_compiler_options INTERFACE
 # Sub-directories
 add_subdirectory(include)
 add_subdirectory(src)
+
+# Philote discipline interface
+if(BORA_BUILD_PHILOTE)
+    # The PhiloteCpp package config references protobuf::libprotobuf and
+    # gRPC::grpc++ without finding them itself, so locate them first.
+    find_package(Protobuf CONFIG QUIET)
+    if(NOT Protobuf_FOUND)
+        find_package(Protobuf REQUIRED)
+    endif()
+    find_package(gRPC CONFIG REQUIRED)
+    find_package(PhiloteCpp REQUIRED)
+    add_subdirectory(src/philote)
+endif()
 
 # Install CMake package configuration files
 configure_package_config_file(

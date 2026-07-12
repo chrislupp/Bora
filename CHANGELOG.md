@@ -21,10 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Binary weight format (`data/*.bnn`, `data/*.bid`) with converter script
   (`scripts/convert_weights.py`) and installed data files; weight directory resolution via
   explicit path, `BORA_DATA_DIR`, or baked-in install/source locations
-- Golden-value test suite (64 cases generated from Python NeuralFoil via
-  `scripts/generate_golden_data.py`) and finite-difference verification of all gradients
+- Reference-value test suite (64 cases generated from Python NeuralFoil via
+  `scripts/generate_output_ref_data.py`) and finite-difference verification of all gradients
+- Reference-gradient test suite: analytic gradients verified directly against Python
+  NeuralFoil jacobians computed with CasADi (`scripts/generate_gradient_ref_data.py`)
+- Test reference data is committed as HDF5 files (`test/data/output_ref_data.h5`,
+  `test/data/gradient_ref_data.h5`) loaded at test runtime via a shared loader
+  (`test/ref_data.h`); regenerate only when updating the reference data (tests
+  require HDF5)
 - Examples: basic analysis with gradients (`example`) and gradient-based airfoil drag
   optimization at fixed lift with Adam (`optimize_airfoil`)
+- Philote discipline (`bora::BoraDiscipline`, gated behind `BORA_BUILD_PHILOTE`): exposes
+  NeuralFoil function and analytic gradient evaluations over gRPC via Philote-Cpp, with
+  `model_size`, `data_directory`, and `include_boundary_layer` options, plus a standalone
+  `bora_server` executable
 - Docusaurus documentation site with custom theme, KaTeX math support, and versioned docs
 - GitHub Actions workflow for automatic documentation deployment to GitHub Pages
 - Docs versioning integrated into the release workflow

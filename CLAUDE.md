@@ -9,7 +9,7 @@ Bora is a C++20 port of NeuralFoil.
 ### Requirements
 - CMake 3.20+
 - C++20 compatible compiler
-- GTest (for unit tests)
+- GTest and HDF5 (for unit tests)
 
 ### Build Commands
 ```bash
@@ -48,6 +48,7 @@ run-clang-tidy -p build -header-filter='include/' 'src/.*\.cpp$'
 - `BUILD_TESTS=ON|OFF` - Enable/disable test building (default: ON)
 - `BUILD_EXAMPLES=ON|OFF` - Enable/disable example programs (default: ON)
 - `BORA_NATIVE_ARCH=ON|OFF` - Enable native architecture optimizations (default: ON)
+- `BORA_BUILD_PHILOTE=ON|OFF` - Build the Philote discipline library and `bora_server` (default: OFF; requires PhiloteCpp, gRPC, and Protobuf, e.g. `-DCMAKE_PREFIX_PATH=~/installed/Philote-Cpp`)
 
 ## Documentation Site
 
