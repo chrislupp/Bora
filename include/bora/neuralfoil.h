@@ -29,7 +29,7 @@ public:
     ///   4. The source-tree data directory baked in at build time.
     ///
     /// @param size Network size (speed/accuracy tradeoff).
-    /// @param data_dir Optional directory containing the .bnn/.bid weight
+    /// @param data_dir Optional directory containing the HDF5 (.h5) weight
     /// files.
     /// @throws std::runtime_error if the weight files cannot be found or
     /// parsed.

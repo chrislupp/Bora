@@ -13,9 +13,9 @@ Bora is a C++20 library. Everything lives in the `bora` namespace; include
 - **`NeuralFoil`** — The analysis model. Construct with a `ModelSize` (and
   optionally a weight directory), then call `Analyze()` or
   `AnalyzeWithGradients()`. Immutable and thread-safe after construction.
-- **`Network`** — Low-level MLP container: loads `.bnn` weight files (from
-  disk or memory) and evaluates the raw network with optional forward-mode
-  Jacobian propagation.
+- **`Network`** — Low-level MLP container: loads HDF5 (`.h5`) weight files
+  (from disk or memory) and evaluates the raw network with optional
+  forward-mode Jacobian propagation.
 - **`InputDistribution`** — Training-distribution statistics used for the
   Mahalanobis-based analysis confidence.
 

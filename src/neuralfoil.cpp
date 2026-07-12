@@ -245,12 +245,12 @@ std::filesystem::path ResolveDataDir(
 
 Network LoadNetwork(ModelSize size, const std::filesystem::path& data_dir) {
     const auto dir = ResolveDataDir(data_dir);
-    return Network::Load(dir / (std::string("nn-") + FileStem(size) + ".bnn"));
+    return Network::Load(dir / (std::string("nn-") + FileStem(size) + ".h5"));
 }
 
 InputDistribution LoadDistribution(const std::filesystem::path& data_dir) {
     const auto dir = ResolveDataDir(data_dir);
-    return InputDistribution::Load(dir / "scaled_input_distribution.bid");
+    return InputDistribution::Load(dir / "scaled_input_distribution.h5");
 }
 
 }  // namespace

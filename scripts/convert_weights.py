@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert NeuralFoil .npz weight files into Bora's flat binary format.
+"""Convert NeuralFoil .npz weight files into Bora's HDF5 weight format.
 
 Usage:
     python3 scripts/convert_weights.py <neuralfoil_weights_dir> <output_dir>
@@ -8,64 +8,54 @@ The input directory is `neuralfoil/nn_weights_and_biases` from the NeuralFoil
 repository (https://github.com/peterdsharpe/NeuralFoil) or from an installed
 `neuralfoil` package.
 
-Output formats (all little-endian):
+Output layouts:
 
-nn-<size>.bnn (network weights):
-    magic      char[8]  "BORANN01"
-    n_layers   uint32
-    per layer:
-        rows   uint32
-        cols   uint32
-        weight float32[rows*cols]   row-major
-        bias   float32[rows]
+nn-<size>.h5 (network weights):
+    /layers/<i>/weights  float32, shape (rows, cols), row-major
+    /layers/<i>/biases   float32, shape (rows,)
 
-scaled_input_distribution.bid (input distribution statistics):
-    magic      char[8]  "BORAID01"
-    n          uint32
-    mean       float64[n]
-    inv_cov    float64[n*n]         row-major
+    Layer groups are named "0", "1", ... in evaluation order; the layer count
+    is the number of groups under /layers.
+
+scaled_input_distribution.h5 (input distribution statistics):
+    /mean     float64, shape (n,)
+    /inv_cov  float64, shape (n, n), row-major
 """
 
-import struct
 import sys
 from pathlib import Path
 
+import h5py
 import numpy as np
-
-NN_MAGIC = b"BORANN01"
-DIST_MAGIC = b"BORAID01"
 
 
 def convert_network(npz_path: Path, out_path: Path) -> None:
     params = dict(np.load(npz_path))
     layer_indices = sorted({int(key.split(".")[1]) for key in params.keys()})
 
-    with open(out_path, "wb") as f:
-        f.write(NN_MAGIC)
-        f.write(struct.pack("<I", len(layer_indices)))
-        for i in layer_indices:
-            w = np.ascontiguousarray(params[f"net.{i}.weight"], dtype="<f4")
-            b = np.ascontiguousarray(params[f"net.{i}.bias"], dtype="<f4")
+    with h5py.File(out_path, "w") as f:
+        layers = f.create_group("layers")
+        for out_index, i in enumerate(layer_indices):
+            w = np.asarray(params[f"net.{i}.weight"], dtype=np.float32)
+            b = np.asarray(params[f"net.{i}.bias"], dtype=np.float32)
             assert w.ndim == 2 and b.ndim == 1 and w.shape[0] == b.shape[0]
-            f.write(struct.pack("<II", w.shape[0], w.shape[1]))
-            f.write(w.tobytes())
-            f.write(b.tobytes())
+            group = layers.create_group(str(out_index))
+            group.create_dataset("weights", data=w)
+            group.create_dataset("biases", data=b)
     print(f"  {npz_path.name} -> {out_path.name} "
           f"({len(layer_indices)} layers, {out_path.stat().st_size} bytes)")
 
 
 def convert_distribution(npz_path: Path, out_path: Path) -> None:
     dist = dict(np.load(npz_path))
-    mean = np.ascontiguousarray(dist["mean_inputs_scaled"], dtype="<f8")
-    inv_cov = np.ascontiguousarray(dist["inv_cov_inputs_scaled"], dtype="<f8")
+    mean = np.asarray(dist["mean_inputs_scaled"], dtype=np.float64)
+    inv_cov = np.asarray(dist["inv_cov_inputs_scaled"], dtype=np.float64)
     n = mean.shape[0]
     assert inv_cov.shape == (n, n)
 
-    with open(out_path, "wb") as f:
-        f.write(DIST_MAGIC)
-        f.write(struct.pack("<I", n))
-        f.write(mean.tobytes())
-        f.write(inv_cov.tobytes())
+    with h5py.File(out_path, "w") as f:
+        f.create_dataset("mean", data=mean)
+        f.create_dataset("inv_cov", data=inv_cov)
     print(f"  {npz_path.name} -> {out_path.name} ({n} inputs)")
 
 
@@ -84,10 +74,10 @@ def main() -> None:
         sys.exit(1)
 
     for npz_path in nn_files:
-        convert_network(npz_path, out_dir / f"{npz_path.stem}.bnn")
+        convert_network(npz_path, out_dir / f"{npz_path.stem}.h5")
 
     dist_path = in_dir / "scaled_input_distribution.npz"
-    convert_distribution(dist_path, out_dir / "scaled_input_distribution.bid")
+    convert_distribution(dist_path, out_dir / "scaled_input_distribution.h5")
 
 
 if __name__ == "__main__":

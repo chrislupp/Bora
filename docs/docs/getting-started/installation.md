@@ -13,6 +13,7 @@ This guide covers building Bora from source. Bora is a C++20 project built with 
 |------------|----------------|-------|
 | CMake | 3.20+ | Build system generator |
 | C++ Compiler | GCC 12+ or Clang 16+ | Must support C++20 |
+| HDF5 | 1.10+ | C library, loads the network weight data |
 | GTest | latest | Unit testing framework |
 
 <!-- TODO: Add any additional dependencies your project requires -->

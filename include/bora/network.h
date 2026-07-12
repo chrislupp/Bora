@@ -19,14 +19,14 @@ struct Layer {
 /// activation after the final layer), matching NeuralFoil's architecture.
 class Network {
 public:
-    /// @brief Loads a network from a Bora binary weight file (.bnn).
+    /// @brief Loads a network from a Bora HDF5 weight file (.h5).
     /// @param path Path to the weight file.
     /// @return The loaded network.
     /// @throws std::runtime_error on I/O or format errors.
     static Network Load(const std::filesystem::path& path);
 
-    /// @brief Parses a network from an in-memory Bora binary weight blob.
-    /// @param data The raw bytes of a .bnn file.
+    /// @brief Parses a network from an in-memory HDF5 file image.
+    /// @param data The raw bytes of a network weight .h5 file.
     /// @return The parsed network.
     /// @throws std::runtime_error on format errors.
     static Network FromMemory(std::span<const std::byte> data);
@@ -74,14 +74,15 @@ private:
 /// space, used for the Mahalanobis-distance analysis-confidence correction.
 class InputDistribution {
 public:
-    /// @brief Loads distribution statistics from a Bora binary file (.bid).
+    /// @brief Loads distribution statistics from a Bora HDF5 file (.h5).
     /// @param path Path to the file.
     /// @return The loaded distribution.
     /// @throws std::runtime_error on I/O or format errors.
     static InputDistribution Load(const std::filesystem::path& path);
 
-    /// @brief Parses distribution statistics from an in-memory blob.
-    /// @param data The raw bytes of a .bid file.
+    /// @brief Parses distribution statistics from an in-memory HDF5 file
+    /// image.
+    /// @param data The raw bytes of a distribution .h5 file.
     /// @return The parsed distribution.
     /// @throws std::runtime_error on format errors.
     static InputDistribution FromMemory(std::span<const std::byte> data);

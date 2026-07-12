@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   differentiation through the network, for gradient-based optimization
 - Kulfan (CST) geometry utilities: coordinate generation and least-squares parameter fitting
   from coordinates (`bora::GenerateKulfanCoordinates`, `bora::FitKulfanParameters`)
-- Binary weight format (`data/*.bnn`, `data/*.bid`) with converter script
-  (`scripts/convert_weights.py`) and installed data files; weight directory resolution via
-  explicit path, `BORA_DATA_DIR`, or baked-in install/source locations
+- HDF5 weight format (`data/nn-*.h5`, `data/scaled_input_distribution.h5`) with converter
+  script (`scripts/convert_weights.py`) and installed data files; weight directory resolution
+  via explicit path, `BORA_DATA_DIR`, or baked-in install/source locations
 - Reference-value test suite (64 cases generated from Python NeuralFoil via
   `scripts/generate_output_ref_data.py`) and finite-difference verification of all gradients
 - Reference-gradient test suite: analytic gradients verified directly against Python

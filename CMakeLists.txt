@@ -61,7 +61,7 @@ target_compile_definitions(project_compiler_options INTERFACE
 )
 
 # Packages
-# find_package(<dependency> REQUIRED)
+find_package(HDF5 REQUIRED COMPONENTS C)
 
 # Sub-directories
 add_subdirectory(include)

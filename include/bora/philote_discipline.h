@@ -29,7 +29,7 @@ namespace bora {
 /// Options:
 ///   - model_size (string): network size, one of "xxsmall", "xsmall", "small",
 ///     "medium", "large", "xlarge", "xxlarge", "xxxlarge" (default "xlarge")
-///   - data_directory (string): directory containing the .bnn/.bid weight
+///   - data_directory (string): directory containing the HDF5 (.h5) weight
 ///     files; empty uses the standard resolution order (BORA_DATA_DIR, then
 ///     baked-in install/source locations)
 ///   - include_boundary_layer (bool): expose boundary layer distribution

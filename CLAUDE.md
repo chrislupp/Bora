@@ -9,7 +9,8 @@ Bora is a C++20 port of NeuralFoil.
 ### Requirements
 - CMake 3.20+
 - C++20 compatible compiler
-- GTest and HDF5 (for unit tests)
+- HDF5 (C library, used to load the network weight data)
+- GTest (for unit tests)
 
 ### Build Commands
 ```bash

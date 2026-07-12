@@ -53,6 +53,7 @@ fixed lift.
 
 - CMake 3.20+
 - C++20 compatible compiler (e.g., GCC 12+, Clang 16+)
+- HDF5 (C library, for loading the network weights)
 - GTest (for unit tests)
 
 No external linear algebra or ML runtime dependencies; the network evaluation
@@ -85,9 +86,9 @@ ctest --test-dir build
 
 ## Network Weights
 
-The neural network weights live in `data/` in a simple binary format converted
-from the upstream NeuralFoil `.npz` files (see `scripts/convert_weights.py`).
-At runtime the weight directory is resolved in this order:
+The neural network weights live in `data/` as HDF5 files converted from the
+upstream NeuralFoil `.npz` files (see `scripts/convert_weights.py`). At
+runtime the weight directory is resolved in this order:
 
 1. Explicit `data_dir` constructor argument
 2. `BORA_DATA_DIR` environment variable
@@ -95,7 +96,7 @@ At runtime the weight directory is resolved in this order:
 4. Source-tree `data/` directory (for build-tree use)
 
 `bora::Network::FromMemory` / `bora::InputDistribution::FromMemory` are
-available if you prefer to embed the weight blobs into your own binary.
+available if you prefer to embed the `.h5` file images into your own binary.
 
 ## Attribution
 

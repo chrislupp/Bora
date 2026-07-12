@@ -16,7 +16,9 @@ target_compile_definitions(Bora PRIVATE
 add_library(Bora::Bora ALIAS Bora)
 
 target_link_libraries(Bora
-    PRIVATE project_compiler_options
+    PRIVATE
+        project_compiler_options
+        HDF5::HDF5
 )
 
 target_include_directories(Bora
@@ -48,5 +50,5 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/"
 # Install neural network weight data
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/data/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/bora"
-    FILES_MATCHING PATTERN "*.bnn" PATTERN "*.bid"
+    FILES_MATCHING PATTERN "*.h5"
 )

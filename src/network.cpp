@@ -1,85 +1,172 @@
 #include "bora/network.h"
 
-#include <bit>
 #include <cmath>
-#include <cstdint>
-#include <cstring>
-#include <fstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
-static_assert(
-    std::endian::native == std::endian::little,
-    "Bora weight files are little-endian; big-endian hosts are not supported.");
+#include <hdf5.h>
 
 namespace bora {
 
 namespace {
 
-constexpr char kNetworkMagic[8] = {'B', 'O', 'R', 'A', 'N', 'N', '0', '1'};
-constexpr char kDistributionMagic[8] = {'B', 'O', 'R', 'A', 'I', 'D', '0', '1'};
-
-/// Sequential reader over an in-memory blob with bounds checking.
-class BlobReader {
+/// Suppresses HDF5's default stderr error printing for the current scope so
+/// failures surface only as the exceptions thrown by the loaders.
+class ErrorSilencer {
 public:
-    explicit BlobReader(std::span<const std::byte> data) : data_(data) {}
-
-    void ReadRaw(void* dest, size_t n_bytes) {
-        if (offset_ + n_bytes > data_.size()) {
-            throw std::runtime_error("Bora weight blob is truncated.");
-        }
-        std::memcpy(dest, data_.data() + offset_, n_bytes);
-        offset_ += n_bytes;
+    ErrorSilencer() {
+        H5Eget_auto2(H5E_DEFAULT, &handler_, &handler_data_);
+        H5Eset_auto2(H5E_DEFAULT, nullptr, nullptr);
     }
-
-    uint32_t ReadU32() {
-        uint32_t value = 0;
-        ReadRaw(&value, sizeof(value));
-        return value;
-    }
-
-    void ReadF32Vector(std::vector<double>& dest, size_t count) {
-        std::vector<float> buffer(count);
-        ReadRaw(buffer.data(), count * sizeof(float));
-        dest.resize(count);
-        for (size_t i = 0; i < count; ++i) {
-            dest[i] = static_cast<double>(buffer[i]);
-        }
-    }
-
-    void ReadF64Vector(std::vector<double>& dest, size_t count) {
-        dest.resize(count);
-        ReadRaw(dest.data(), count * sizeof(double));
-    }
-
-    void CheckMagic(const char (&magic)[8], const std::string& what) {
-        char found[8];
-        ReadRaw(found, sizeof(found));
-        if (std::memcmp(found, magic, sizeof(found)) != 0) {
-            throw std::runtime_error("Not a Bora " + what +
-                                     " file (bad magic).");
-        }
-    }
-
-    [[nodiscard]] bool AtEnd() const { return offset_ == data_.size(); }
+    ~ErrorSilencer() { H5Eset_auto2(H5E_DEFAULT, handler_, handler_data_); }
+    ErrorSilencer(const ErrorSilencer&) = delete;
+    ErrorSilencer& operator=(const ErrorSilencer&) = delete;
 
 private:
-    std::span<const std::byte> data_;
-    size_t offset_ = 0;
+    H5E_auto2_t handler_ = nullptr;
+    void* handler_data_ = nullptr;
 };
 
-std::vector<std::byte> ReadFile(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) {
-        throw std::runtime_error("Cannot open file: " + path.string());
+/// Owns an HDF5 identifier and releases it with the given close function.
+class Handle {
+public:
+    Handle(hid_t id, herr_t (*close)(hid_t), const std::string& error)
+        : id_(id), close_(close) {
+        if (id_ < 0) {
+            throw std::runtime_error(error);
+        }
     }
-    const auto size = static_cast<size_t>(file.tellg());
-    std::vector<std::byte> data(size);
-    file.seekg(0);
-    file.read(reinterpret_cast<char*>(data.data()),
-              static_cast<std::streamsize>(size));
-    if (!file) {
-        throw std::runtime_error("Failed to read file: " + path.string());
+    ~Handle() { close_(id_); }
+    Handle(const Handle&) = delete;
+    Handle& operator=(const Handle&) = delete;
+
+    [[nodiscard]] hid_t Get() const { return id_; }
+
+private:
+    hid_t id_;
+    herr_t (*close_)(hid_t);
+};
+
+Handle OpenFile(const std::filesystem::path& path, const std::string& what) {
+    return {H5Fopen(path.string().c_str(), H5F_ACC_RDONLY, H5P_DEFAULT),
+            H5Fclose, "Cannot open " + what + " HDF5 file: " + path.string()};
+}
+
+/// Opens an in-memory .h5 blob as a read-only HDF5 file. The image is copied
+/// into the HDF5 core driver, so the blob only needs to outlive this call.
+Handle OpenFileImage(std::span<const std::byte> data, const std::string& what) {
+    Handle fapl(H5Pcreate(H5P_FILE_ACCESS), H5Pclose,
+                "Cannot create an HDF5 file-access property list.");
+    if (H5Pset_fapl_core(fapl.Get(), 1 << 16, false) < 0 ||
+        H5Pset_file_image(
+            fapl.Get(),
+            const_cast<void*>(static_cast<const void*>(data.data())),
+            data.size()) < 0) {
+        throw std::runtime_error("Cannot set up an in-memory HDF5 image.");
+    }
+    return {H5Fopen("bora-in-memory.h5", H5F_ACC_RDONLY, fapl.Get()), H5Fclose,
+            "Not a valid " + what + " HDF5 image."};
+}
+
+/// Reads an entire dataset as doubles (HDF5 converts from the stored type)
+/// and returns its extents in dims.
+std::vector<double> ReadDoubleDataset(hid_t location, const char* name,
+                                      std::vector<hsize_t>& dims) {
+    const std::string what(name);
+    Handle dataset(H5Dopen2(location, name, H5P_DEFAULT), H5Dclose,
+                   "Bora weight file is missing dataset '" + what + "'.");
+    Handle space(H5Dget_space(dataset.Get()), H5Sclose,
+                 "Cannot read the dataspace of dataset '" + what + "'.");
+    const int n_dims = H5Sget_simple_extent_ndims(space.Get());
+    if (n_dims < 0) {
+        throw std::runtime_error("Cannot read the rank of dataset '" + what +
+                                 "'.");
+    }
+    dims.resize(static_cast<size_t>(n_dims));
+    H5Sget_simple_extent_dims(space.Get(), dims.data(), nullptr);
+
+    size_t total = 1;
+    for (const hsize_t dim : dims) {
+        total *= dim;
+    }
+    std::vector<double> values(total);
+    if (H5Dread(dataset.Get(), H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                values.data()) < 0) {
+        throw std::runtime_error("Failed to read dataset '" + what + "'.");
+    }
+    return values;
+}
+
+/// Reads and validates the /layers/<i>/{weights,biases} network layout.
+std::vector<Layer> ReadLayers(hid_t file) {
+    Handle layers_group(H5Gopen2(file, "layers", H5P_DEFAULT), H5Gclose,
+                        "Bora network file has no 'layers' group.");
+    H5G_info_t info;
+    if (H5Gget_info(layers_group.Get(), &info) < 0) {
+        throw std::runtime_error("Cannot read the 'layers' group.");
+    }
+    const auto n_layers = static_cast<size_t>(info.nlinks);
+    if (n_layers == 0 || n_layers > 1000) {
+        throw std::runtime_error(
+            "Bora network file has an implausible layer count: " +
+            std::to_string(n_layers));
+    }
+
+    std::vector<Layer> layers(n_layers);
+    for (size_t i = 0; i < n_layers; ++i) {
+        const std::string group_name = std::to_string(i);
+        Handle layer_group(
+            H5Gopen2(layers_group.Get(), group_name.c_str(), H5P_DEFAULT),
+            H5Gclose,
+            "Bora network file is missing layer group '" + group_name + "'.");
+        std::vector<hsize_t> dims;
+        layers[i].weights =
+            ReadDoubleDataset(layer_group.Get(), "weights", dims);
+        if (dims.size() != 2 || dims[0] == 0 || dims[1] == 0) {
+            throw std::runtime_error("Layer " + group_name +
+                                     " 'weights' must be a non-empty matrix.");
+        }
+        layers[i].rows = dims[0];
+        layers[i].cols = dims[1];
+        layers[i].biases = ReadDoubleDataset(layer_group.Get(), "biases", dims);
+        if (dims.size() != 1 || dims[0] != layers[i].rows) {
+            throw std::runtime_error(
+                "Layer " + group_name +
+                " 'biases' must be a vector with one entry per weight row.");
+        }
+    }
+
+    for (size_t i = 1; i < layers.size(); ++i) {
+        if (layers[i].cols != layers[i - 1].rows) {
+            throw std::runtime_error(
+                "Bora network file has inconsistent layer dimensions.");
+        }
+    }
+    return layers;
+}
+
+/// The /mean and /inv_cov datasets of an input distribution file.
+struct DistributionData {
+    std::vector<double> mean;
+    std::vector<double> inv_cov;
+};
+
+/// Reads and validates the input distribution layout.
+DistributionData ReadDistribution(hid_t file) {
+    DistributionData data;
+    std::vector<hsize_t> dims;
+    data.mean = ReadDoubleDataset(file, "mean", dims);
+    if (dims.size() != 1 || dims[0] == 0 || dims[0] > 10000) {
+        throw std::runtime_error(
+            "Bora distribution file has an implausible 'mean' dimension.");
+    }
+    const size_t n = data.mean.size();
+    data.inv_cov = ReadDoubleDataset(file, "inv_cov", dims);
+    if (dims.size() != 2 || dims[0] != n || dims[1] != n) {
+        throw std::runtime_error(
+            "Bora distribution file 'inv_cov' must be a square matrix "
+            "matching 'mean'.");
     }
     return data;
 }
@@ -120,42 +207,18 @@ inline double SwishDerivative(double x) {
 }  // namespace
 
 Network Network::Load(const std::filesystem::path& path) {
-    const auto data = ReadFile(path);
-    return FromMemory(data);
+    const ErrorSilencer silencer;
+    const Handle file = OpenFile(path, "Bora network weight");
+    Network network;
+    network.layers_ = ReadLayers(file.Get());
+    return network;
 }
 
 Network Network::FromMemory(std::span<const std::byte> data) {
-    BlobReader reader(data);
-    reader.CheckMagic(kNetworkMagic, "network weight");
-
-    const uint32_t n_layers = reader.ReadU32();
-    if (n_layers == 0 || n_layers > 1000) {
-        throw std::runtime_error(
-            "Bora network file has an implausible layer count: " +
-            std::to_string(n_layers));
-    }
-
+    const ErrorSilencer silencer;
+    const Handle file = OpenFileImage(data, "Bora network weight");
     Network network;
-    network.layers_.resize(n_layers);
-    for (auto& layer : network.layers_) {
-        layer.rows = reader.ReadU32();
-        layer.cols = reader.ReadU32();
-        if (layer.rows == 0 || layer.cols == 0) {
-            throw std::runtime_error("Bora network file has an empty layer.");
-        }
-        reader.ReadF32Vector(layer.weights, layer.rows * layer.cols);
-        reader.ReadF32Vector(layer.biases, layer.rows);
-    }
-    if (!reader.AtEnd()) {
-        throw std::runtime_error("Bora network file has trailing data.");
-    }
-
-    for (size_t i = 1; i < network.layers_.size(); ++i) {
-        if (network.layers_[i].cols != network.layers_[i - 1].rows) {
-            throw std::runtime_error(
-                "Bora network file has inconsistent layer dimensions.");
-        }
-    }
+    network.layers_ = ReadLayers(file.Get());
     return network;
 }
 
@@ -258,28 +321,23 @@ void Network::EvaluateWithJacobian(std::span<const double> x,
 }
 
 InputDistribution InputDistribution::Load(const std::filesystem::path& path) {
-    const auto data = ReadFile(path);
-    return FromMemory(data);
+    const ErrorSilencer silencer;
+    const Handle file = OpenFile(path, "Bora input distribution");
+    auto data = ReadDistribution(file.Get());
+    InputDistribution distribution;
+    distribution.mean_ = std::move(data.mean);
+    distribution.inv_cov_ = std::move(data.inv_cov);
+    return distribution;
 }
 
 InputDistribution InputDistribution::FromMemory(
-    std::span<const std::byte> data) {
-    BlobReader reader(data);
-    reader.CheckMagic(kDistributionMagic, "input distribution");
-
-    const uint32_t n = reader.ReadU32();
-    if (n == 0 || n > 10000) {
-        throw std::runtime_error(
-            "Bora distribution file has an implausible dimension: " +
-            std::to_string(n));
-    }
-
+    std::span<const std::byte> blob) {
+    const ErrorSilencer silencer;
+    const Handle file = OpenFileImage(blob, "Bora input distribution");
+    auto data = ReadDistribution(file.Get());
     InputDistribution distribution;
-    reader.ReadF64Vector(distribution.mean_, n);
-    reader.ReadF64Vector(distribution.inv_cov_, static_cast<size_t>(n) * n);
-    if (!reader.AtEnd()) {
-        throw std::runtime_error("Bora distribution file has trailing data.");
-    }
+    distribution.mean_ = std::move(data.mean);
+    distribution.inv_cov_ = std::move(data.inv_cov);
     return distribution;
 }
 

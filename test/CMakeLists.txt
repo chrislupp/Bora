@@ -1,7 +1,6 @@
 message("Building with tests.")
 
 find_package(GTest REQUIRED)
-find_package(HDF5 REQUIRED COMPONENTS C)
 include(GoogleTest)
 
 add_executable(BoraTests
@@ -9,6 +8,7 @@ add_executable(BoraTests
     test_reference_gradients.cpp
     test_gradients.cpp
     test_kulfan.cpp
+    test_network.cpp
     test_neuralfoil.cpp
 )
 
@@ -21,6 +21,7 @@ target_link_libraries(BoraTests
 
 target_compile_definitions(BoraTests PRIVATE
     BORA_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+    BORA_WEIGHTS_DATA_DIR="${PROJECT_SOURCE_DIR}/data"
 )
 
 gtest_discover_tests(BoraTests)
