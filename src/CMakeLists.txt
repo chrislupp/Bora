@@ -1,5 +1,15 @@
 add_library(Bora STATIC
     bora.cpp
+    kulfan.cpp
+    network.cpp
+    neuralfoil.cpp
+)
+
+# Baked-in default locations for the neural network weight data. The install
+# location is tried first at runtime, then the source tree (for build-tree use).
+target_compile_definitions(Bora PRIVATE
+    BORA_INSTALL_DATA_DIR="${CMAKE_INSTALL_FULL_DATADIR}/bora"
+    BORA_SOURCE_DATA_DIR="${PROJECT_SOURCE_DIR}/data"
 )
 
 # Create namespaced alias for use in build tree and by downstream projects
@@ -33,4 +43,10 @@ install(TARGETS Bora
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+)
+
+# Install neural network weight data
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/data/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/bora"
+    FILES_MATCHING PATTERN "*.bnn" PATTERN "*.bid"
 )

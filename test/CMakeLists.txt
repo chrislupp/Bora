@@ -5,6 +5,9 @@ include(GoogleTest)
 
 add_executable(BoraTests
     test_bora.cpp
+    test_gradients.cpp
+    test_kulfan.cpp
+    test_neuralfoil.cpp
 )
 
 target_link_libraries(BoraTests
