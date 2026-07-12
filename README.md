@@ -1,8 +1,8 @@
-# ProjectName
+# Bora
 
-[![Build and Tests](https://github.com/GITHUB_USER/ProjectName/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/GITHUB_USER/ProjectName/actions/workflows/build.yml)
+[![Build and Tests](https://github.com/clupp/Bora/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/clupp/Bora/actions/workflows/build.yml)
 
-Project description goes here.
+A port of NeuralFoil goes here.
 
 ## Quick Start
 
@@ -40,4 +40,4 @@ ctest --test-dir build
 |--------|---------|-------------|
 | `BUILD_TESTS` | `ON` | Enable/disable test building |
 | `BUILD_EXAMPLES` | `ON` | Enable/disable example programs |
-| `PROJECTNAME_NATIVE_ARCH` | `ON` | Enable native architecture optimizations |
+| `BORA_NATIVE_ARCH` | `ON` | Enable native architecture optimizations |

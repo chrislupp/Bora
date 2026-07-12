@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace projectname {
+namespace bora {
 
 /// @brief Returns the project version string.
 /// @return Version string in "major.minor.patch" format.
@@ -14,4 +14,4 @@ std::string GetVersion();
 /// @return Sum of a and b.
 int Add(int a, int b);
 
-}  // namespace projectname
+}  // namespace bora

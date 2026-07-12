@@ -52,7 +52,7 @@ function FeatureCard({ label, title, description }: FeatureItem) {
 /* ── Code preview ── */
 function CodePreview() {
     // TODO: Replace with a minimal usage example of your library
-    const code = `#include <projectname.h>
+    const code = `#include <bora.h>
 
 int main() {
     // Your library usage example here
@@ -115,7 +115,7 @@ function Hero() {
 /* ── Page ── */
 export default function Home(): ReactNode {
     return (
-        <Layout description="ProjectName - A C++20 library. Replace this description after running setup.sh.">
+        <Layout description="Bora - A C++20 library. Replace this description after running setup.sh.">
             <Hero />
 
             {/* TODO: Replace stats with your project's key metrics */}

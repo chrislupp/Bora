@@ -7,12 +7,12 @@ title: "Basic Usage"
 
 <!-- TODO: Replace with a real example demonstrating your library's primary use case -->
 
-This example demonstrates the fundamental workflow for using ProjectName.
+This example demonstrates the fundamental workflow for using Bora.
 
 ## Setup
 
 ```cpp
-#include <projectname.h>
+#include <bora.h>
 ```
 
 ## Example

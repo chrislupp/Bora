@@ -18,9 +18,9 @@ if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 # Project settings
-project(ProjectName
+project(Bora
     VERSION 0.1.0
-    DESCRIPTION "Project description"
+    DESCRIPTION "A port of NeuralFoil"
     LANGUAGES CXX
 )
 
@@ -31,7 +31,7 @@ include(CMakePackageConfigHelpers)
 # Cache option variables
 option(BUILD_TESTS "Build unit and integration tests" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
-option(PROJECTNAME_NATIVE_ARCH "Enable native architecture optimizations (-march=native)" ON)
+option(BORA_NATIVE_ARCH "Enable native architecture optimizations (-march=native)" ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -42,13 +42,13 @@ endif()
 
 # Create INTERFACE library for cross-platform compiler options
 add_library(project_compiler_options INTERFACE)
-add_library(ProjectName::compiler_options ALIAS project_compiler_options)
+add_library(Bora::compiler_options ALIAS project_compiler_options)
 
 # Release optimizations - cross-platform using generator expressions
 target_compile_options(project_compiler_options INTERFACE
     # GCC/Clang options
     $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<CONFIG:Release>>:-O3;-fPIC>
-    $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<CONFIG:Release>,$<BOOL:${PROJECTNAME_NATIVE_ARCH}>>:-march=native;-fPIC>
+    $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<CONFIG:Release>,$<BOOL:${BORA_NATIVE_ARCH}>>:-march=native;-fPIC>
     $<$<AND:$<CXX_COMPILER_ID:GNU,Clang,AppleClang>,$<CONFIG:Debug>>:-g;-O0;-fPIC>
     # MSVC options
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>
@@ -68,32 +68,32 @@ add_subdirectory(src)
 
 # Install CMake package configuration files
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ProjectNameConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/ProjectNameConfig.cmake"
-    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProjectName"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BoraConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/BoraConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Bora"
 )
 
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/ProjectNameConfigVersion.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/BoraConfigVersion.cmake"
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/ProjectNameConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/ProjectNameConfigVersion.cmake"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProjectName"
+    "${CMAKE_CURRENT_BINARY_DIR}/BoraConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/BoraConfigVersion.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Bora"
 )
 
 # Install the compiler options interface (empty after install, build-time only)
 install(TARGETS project_compiler_options
-    EXPORT ProjectNameTargets
+    EXPORT BoraTargets
 )
 
-install(EXPORT ProjectNameTargets
-    FILE ProjectNameTargets.cmake
-    NAMESPACE ProjectName::
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ProjectName"
+install(EXPORT BoraTargets
+    FILE BoraTargets.cmake
+    NAMESPACE Bora::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Bora"
 )
 
 # Testing

@@ -5,7 +5,7 @@ title: "Installation"
 
 # Installation
 
-This guide covers building ProjectName from source. ProjectName is a C++20 project built with CMake.
+This guide covers building Bora from source. Bora is a C++20 project built with CMake.
 
 ## Prerequisites
 
@@ -39,12 +39,12 @@ cmake --build build
 To build a specific target only:
 
 ```bash
-cmake --build build --target projectname
+cmake --build build --target bora
 ```
 
 ## Running Tests
 
-ProjectName uses Google Test. After building, run the full test suite with:
+Bora uses Google Test. After building, run the full test suite with:
 
 ```bash
 ctest --test-dir build
@@ -53,7 +53,7 @@ ctest --test-dir build
 To run a specific test executable with verbose output:
 
 ```bash
-./build/test/ProjectNameTests --gtest_filter="*TestName*"
+./build/test/BoraTests --gtest_filter="*TestName*"
 ```
 
 ## CMake Options
@@ -64,7 +64,7 @@ The following options can be passed during the configure step with `-D`:
 |--------|---------|-------------|
 | `BUILD_TESTS` | `ON` | Build the test suite |
 | `BUILD_EXAMPLES` | `ON` | Build example programs |
-| `PROJECTNAME_NATIVE_ARCH` | `ON` | Enable native architecture optimizations (`-march=native`) |
+| `BORA_NATIVE_ARCH` | `ON` | Enable native architecture optimizations (`-march=native`) |
 
 Example with custom options:
 
@@ -72,7 +72,7 @@ Example with custom options:
 cmake -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_TESTS=ON \
-  -DPROJECTNAME_NATIVE_ARCH=OFF
+  -DBORA_NATIVE_ARCH=OFF
 ```
 
 ## Verifying the Installation

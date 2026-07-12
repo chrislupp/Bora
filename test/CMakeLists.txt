@@ -3,14 +3,14 @@ message("Building with tests.")
 find_package(GTest REQUIRED)
 include(GoogleTest)
 
-add_executable(ProjectNameTests
-    test_projectname.cpp
+add_executable(BoraTests
+    test_bora.cpp
 )
 
-target_link_libraries(ProjectNameTests
-    ProjectName
+target_link_libraries(BoraTests
+    Bora
     GTest::gtest_main
-    ProjectName::compiler_options
+    Bora::compiler_options
 )
 
-gtest_discover_tests(ProjectNameTests)
+gtest_discover_tests(BoraTests)

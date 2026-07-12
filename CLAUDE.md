@@ -1,8 +1,8 @@
-# AI Agent Guidelines for ProjectName
+# AI Agent Guidelines for Bora
 
 ## Project Overview
 
-ProjectName is a C++20 library. Replace this description after running setup.sh.
+Bora is a C++20 port of NeuralFoil.
 
 ## Build System
 
@@ -26,7 +26,7 @@ cmake --build build --target <target_name>
 ctest --test-dir build
 
 # Run specific test executable
-./build/test/ProjectNameTests
+./build/test/BoraTests
 ```
 
 ### Linting and Formatting
@@ -47,7 +47,7 @@ run-clang-tidy -p build -header-filter='include/' 'src/.*\.cpp$'
 ### Key CMake Options
 - `BUILD_TESTS=ON|OFF` - Enable/disable test building (default: ON)
 - `BUILD_EXAMPLES=ON|OFF` - Enable/disable example programs (default: ON)
-- `PROJECTNAME_NATIVE_ARCH=ON|OFF` - Enable native architecture optimizations (default: ON)
+- `BORA_NATIVE_ARCH=ON|OFF` - Enable native architecture optimizations (default: ON)
 
 ## Documentation Site
 
@@ -163,7 +163,7 @@ Uses Google Test (gtest). Tests are organized by component.
 ctest --test-dir build
 
 # Specific test with filter
-./build/test/ProjectNameTests --gtest_filter="*TestName*"
+./build/test/BoraTests --gtest_filter="*TestName*"
 ```
 
 ## Pull Requests

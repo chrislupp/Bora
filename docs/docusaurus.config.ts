@@ -5,7 +5,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
 const config: Config = {
-    title: "ProjectName",
+    title: "Bora",
     tagline:
         "A C++20 library. Replace this tagline after running setup.sh.",
     favicon: "img/favicon.ico",
@@ -16,10 +16,10 @@ const config: Config = {
 
     // TODO: Update these after running setup.sh
     url: "https://your-github-username.github.io",
-    baseUrl: "/ProjectName/",
+    baseUrl: "/Bora/",
 
     organizationName: "your-github-username",
-    projectName: "ProjectName",
+    projectName: "Bora",
 
     onBrokenLinks: "throw",
 
@@ -48,7 +48,7 @@ const config: Config = {
                     rehypePlugins: [rehypeKatex],
                     // TODO: Update repository URL after running setup.sh
                     editUrl:
-                        "https://github.com/your-github-username/ProjectName/tree/develop/docs/",
+                        "https://github.com/your-github-username/Bora/tree/develop/docs/",
                 },
                 blog: false,
                 theme: {
@@ -64,7 +64,7 @@ const config: Config = {
             respectPrefersColorScheme: true,
         },
         navbar: {
-            title: "ProjectName",
+            title: "Bora",
             items: [
                 {
                     type: "docSidebar",
@@ -84,7 +84,7 @@ const config: Config = {
                 },
                 {
                     // TODO: Update repository URL after running setup.sh
-                    href: "https://github.com/your-github-username/ProjectName",
+                    href: "https://github.com/your-github-username/Bora",
                     label: "GitHub",
                     position: "right",
                 },
@@ -112,11 +112,11 @@ const config: Config = {
                         {
                             // TODO: Update repository URL after running setup.sh
                             label: "GitHub",
-                            href: "https://github.com/your-github-username/ProjectName",
+                            href: "https://github.com/your-github-username/Bora",
                         },
                         {
                             label: "Changelog",
-                            href: "https://github.com/your-github-username/ProjectName/blob/main/CHANGELOG.md",
+                            href: "https://github.com/your-github-username/Bora/blob/main/CHANGELOG.md",
                         },
                     ],
                 },

@@ -7,11 +7,11 @@ title: "Core Concepts"
 
 <!-- TODO: Replace this page with your project's core concepts and design philosophy -->
 
-This page explains the key ideas behind ProjectName and how they map to the library's API.
+This page explains the key ideas behind Bora and how they map to the library's API.
 
 ## Design Philosophy
 
-Describe the high-level design decisions and trade-offs that shaped ProjectName.
+Describe the high-level design decisions and trade-offs that shaped Bora.
 
 ## Architecture
 
@@ -23,4 +23,4 @@ List and briefly describe the primary types (classes, structs, enums) that users
 
 ## Error Handling
 
-Describe how ProjectName reports and handles errors (exceptions, error codes, etc.).
+Describe how Bora reports and handles errors (exceptions, error codes, etc.).

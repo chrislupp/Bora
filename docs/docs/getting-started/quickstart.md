@@ -5,18 +5,18 @@ title: "Quickstart"
 
 # Quickstart
 
-This guide walks through a minimal ProjectName program.
+This guide walks through a minimal Bora program.
 
 ## Complete Example
 
 ```cpp
-#include <projectname.h>
+#include <bora.h>
 #include <iostream>
 
 int main() {
     // TODO: Replace with a real usage example of your library
 
-    std::cout << "Hello from ProjectName!" << std::endl;
+    std::cout << "Hello from Bora!" << std::endl;
 
     return 0;
 }
@@ -26,10 +26,10 @@ int main() {
 
 ### 1. Include Headers
 
-Include the main ProjectName header to access the library's API:
+Include the main Bora header to access the library's API:
 
 ```cpp
-#include <projectname.h>
+#include <bora.h>
 ```
 
 ### 2. Use the Library
@@ -40,15 +40,15 @@ Replace this section with a walkthrough of your library's core functionality.
 
 ### 3. Build and Run
 
-Add ProjectName to your CMakeLists.txt:
+Add Bora to your CMakeLists.txt:
 
 ```cmake
-find_package(ProjectName REQUIRED)
-target_link_libraries(my_app PRIVATE projectname)
+find_package(Bora REQUIRED)
+target_link_libraries(my_app PRIVATE bora)
 ```
 
-Or if building within the ProjectName project tree:
+Or if building within the Bora project tree:
 
 ```cmake
-target_link_libraries(my_app PRIVATE projectname)
+target_link_libraries(my_app PRIVATE bora)
 ```

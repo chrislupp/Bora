@@ -5,7 +5,7 @@ title: "API Overview"
 
 # API Overview
 
-ProjectName is a C++20 library. The API is organized into the following categories.
+Bora is a C++20 library. The API is organized into the following categories.
 
 <!-- TODO: Replace with your actual API documentation structure -->
 
