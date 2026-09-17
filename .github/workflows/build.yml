@@ -8,6 +8,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CARGO_TERM_COLOR: always
 
 jobs:
   format:
@@ -18,71 +19,54 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Check Formatting
-      run: |
-        find include src -name '*.h' -o -name '*.cpp' | \
-          xargs clang-format-18 --dry-run --Werror
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt
 
-  clang-tidy:
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    - name: Check Formatting
+      run: cargo fmt --all --check
+
+  clippy:
     runs-on: ubuntu-24.04
 
-    name: Clang-Tidy
+    name: Clippy
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install Dependencies
-      run: sudo apt-get update && sudo apt-get install -y libgtest-dev libhdf5-dev clang-tidy-18
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
 
-    - name: Configure CMake
-      run: >
-        cmake -B ${{github.workspace}}/build
-        -DCMAKE_BUILD_TYPE=Debug
-        -DBUILD_TESTS=ON
-        -DBORA_NATIVE_ARCH=OFF
-        -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    - uses: Swatinem/rust-cache@v2
 
-    - name: Run clang-tidy
-      run: >
-        run-clang-tidy-18
-        -p ${{github.workspace}}/build
-        -header-filter='include/'
-        $(find src -name '*.cpp')
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features --locked -- -D warnings
 
   build:
     needs: [format]
-    runs-on: ubuntu-24.04
 
     strategy:
       fail-fast: false
       matrix:
-        compiler:
-          - { cc: gcc-14, cxx: g++-14, name: GCC 14 }
-        build_type: [Release]
+        os: [ubuntu-24.04, macos-latest]
+        toolchain: [stable, '1.89']
 
-    name: ${{ matrix.compiler.name }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
 
-    env:
-      CC: ${{ matrix.compiler.cc }}
-      CXX: ${{ matrix.compiler.cxx }}
+    name: ${{ matrix.os }} / Rust ${{ matrix.toolchain }}
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install Dependencies
-      run: sudo apt-get update && sudo apt-get install -y libgtest-dev libhdf5-dev
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.toolchain }}
 
-    - name: Configure CMake
-      run: >
-        cmake -B ${{github.workspace}}/build
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DBUILD_TESTS=ON
-        -DBORA_NATIVE_ARCH=OFF
+    - uses: Swatinem/rust-cache@v2
 
     - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{ matrix.build_type }} -j$(nproc)
+      run: cargo build --release --all-targets --all-features --locked
 
     - name: Regression Tests
-      working-directory: ${{github.workspace}}/build
-      run: ctest -C ${{ matrix.build_type }} --output-on-failure
+      run: cargo test --all-features --locked

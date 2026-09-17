@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Update copyright year ranges and version numbers in source files.
 
-Scans .cpp, .h, and .hpp files for copyright headers and updates:
+Scans .rs files for copyright headers and updates:
 - Copyright year ranges (end year to current year)
 - Version numbers (to match the project version)
-Skips build/ and _deps/ directories.
+Skips target/ and docs/node_modules/ directories.
 """
 
 import argparse
@@ -19,8 +19,8 @@ COPYRIGHT_PATTERN = re.compile(
 VERSION_PATTERN = re.compile(
     r"(Version\s+)\d+\.\d+\.\d+"
 )
-SOURCE_EXTENSIONS = {".cpp", ".h", ".hpp"}
-SKIP_DIRS = {"build", "_deps"}
+SOURCE_EXTENSIONS = {".rs"}
+SKIP_DIRS = {"target", "node_modules"}
 
 
 def update_file(path: Path, year: str, version: str | None, dry_run: bool) -> bool:
