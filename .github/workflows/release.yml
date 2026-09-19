@@ -5,9 +5,6 @@ on:
     types: [closed]
     branches: [main]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: write
 
@@ -22,7 +19,7 @@ jobs:
     steps:
     # ── Checkout ──────────────────────────────────────────────────────
     - name: Checkout main
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
         fetch-depth: 0
@@ -122,8 +119,8 @@ jobs:
     - name: Calculate version
       id: version
       run: |
-        # Read current version from CMakeLists.txt
-        CURRENT=$(grep -oP 'VERSION\s+\K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -1)
+        # Read current version from Cargo.toml
+        CURRENT=$(grep -oP '^version\s*=\s*"\K[0-9]+\.[0-9]+\.[0-9]+' Cargo.toml | head -1)
         IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
         echo "Current version: ${MAJOR}.${MINOR}.${PATCH}"
 
@@ -165,14 +162,17 @@ jobs:
       if: steps.labels.outputs.is_release == 'true'
       run: python3 scripts/update_copyright.py --version ${{ steps.version.outputs.new_version }} .
 
-    # ── Update CMakeLists.txt version ────────────────────────────────
-    - name: Update CMakeLists.txt version
+    # ── Update Cargo.toml version ────────────────────────────────────
+    - name: Update Cargo.toml version
       run: |
         NEW_VERSION="${{ steps.version.outputs.new_version }}"
-        sed -i 's/\(VERSION\s\+\)[0-9]\+\.[0-9]\+\.[0-9]\+/\1'"$NEW_VERSION"'/' CMakeLists.txt
+        sed -i '0,/^version\s*=\s*"[0-9]\+\.[0-9]\+\.[0-9]\+"/s//version = "'"$NEW_VERSION"'"/' Cargo.toml
 
-        echo "CMakeLists.txt updated:"
-        grep "VERSION" CMakeLists.txt | head -1
+        # Record the new package version in Cargo.lock without touching dependencies.
+        cargo update --workspace
+
+        echo "Cargo.toml updated:"
+        grep -m1 '^version' Cargo.toml
 
     # ── Update CHANGELOG.md ──────────────────────────────────────────
     - name: Update CHANGELOG.md
@@ -202,9 +202,9 @@ jobs:
     # ── Create docs version snapshot (stable releases only) ────────
     - name: Setup Node.js
       if: steps.labels.outputs.is_release == 'true'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
-        node-version: '20'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: docs/package-lock.json
 
@@ -267,7 +267,7 @@ jobs:
 
     # ── Create GitHub Release ────────────────────────────────────────
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: ${{ steps.version.outputs.tag_version }}
         name: ${{ steps.version.outputs.tag_version }}

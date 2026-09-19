@@ -1,8 +1,0 @@
-@PACKAGE_INIT@
-
-include(CMakeFindDependencyMacro)
-# find_dependency(<dependency> REQUIRED)
-
-include("${CMAKE_CURRENT_LIST_DIR}/BoraTargets.cmake")
-
-check_required_components(Bora)

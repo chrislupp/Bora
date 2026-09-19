@@ -2,31 +2,29 @@
 
 ## Project Overview
 
-Bora is a C++20 port of NeuralFoil.
+Bora is a Rust port of NeuralFoil (formerly C++20; ported to Rust in 2026-09).
 
 ## Build System
 
 ### Requirements
-- CMake 3.20+
-- C++20 compatible compiler
-- GTest (for unit tests)
+- Rust 1.89+ (edition 2024; install via rustup)
+- No system libraries: HDF5 weight files are read with the pure-Rust `hdf5-pure` crate
 
 ### Build Commands
 ```bash
-# Configure (from repository root)
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+# Build library, binaries, and examples
+cargo build --release
 
-# Build all
-cmake --build build
+# Run all tests (the Philote tests require --all-features)
+cargo test --all-features
 
-# Build specific target
-cmake --build build --target <target_name>
+# Run a specific integration test file / filter by name
+cargo test --test neuralfoil
+cargo test --all-features -- matches_python
 
-# Run all tests
-ctest --test-dir build
-
-# Run specific test executable
-./build/test/BoraTests
+# Run examples
+cargo run --release --example example
+cargo run --release --example optimize_airfoil
 ```
 
 ### Linting and Formatting
@@ -34,20 +32,21 @@ Before pushing any changes to the remote, always run formatting and linting chec
 
 ```bash
 # Check formatting (must pass before push)
-find include src -name '*.h' -o -name '*.cpp' | xargs clang-format --dry-run --Werror
+cargo fmt --all --check
 
 # Auto-fix formatting
-find include src -name '*.h' -o -name '*.cpp' | xargs clang-format -i
+cargo fmt --all
 
-# Run clang-tidy (requires cmake configure with compile commands)
-cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-run-clang-tidy -p build -header-filter='include/' 'src/.*\.cpp$'
+# Run clippy (warnings are errors in CI)
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-### Key CMake Options
-- `BUILD_TESTS=ON|OFF` - Enable/disable test building (default: ON)
-- `BUILD_EXAMPLES=ON|OFF` - Enable/disable example programs (default: ON)
-- `BORA_NATIVE_ARCH=ON|OFF` - Enable native architecture optimizations (default: ON)
+### Cargo Features
+- `philote` - Build the Philote discipline (`bora::philote`) and the `bora_server` gRPC binary (default: off; uses the `philote-mdo` crate, which vendors `protoc`, so no system gRPC/protobuf install is needed)
+
+### Performance
+- `RUSTFLAGS="-C target-cpu=native"` enables hardware FMA on x86-64; aarch64 always has it
+- The network kernels in `src/network.rs` (`dot`, `mul_add`, the Jacobian row accumulation) are hand-tuned; benchmark against the previous version before simplifying them
 
 ## Documentation Site
 
@@ -79,12 +78,13 @@ npx docusaurus docs:version X.Y.Z
 ## Code Organization
 
 ```
-include/               # Public headers
-src/                   # Source files
-test/                  # Unit tests (GTest)
+src/                   # Library crate (lib.rs, types, kulfan, network, neuralfoil, philote)
+src/bin/               # bora_server (requires the `philote` feature)
+tests/                 # Integration tests; tests/common/ holds shared loaders
+tests/data/            # Committed HDF5 reference data from Python NeuralFoil
 examples/              # Example programs
-scripts/               # Utility scripts
-cmake/                 # CMake configuration templates
+data/                  # Network weights (HDF5)
+scripts/               # Weight conversion, reference data generation, release helpers
 docs/                  # Docusaurus documentation site
 .github/workflows/     # CI/CD workflows
 ```
@@ -93,14 +93,14 @@ docs/                  # Docusaurus documentation site
 
 ### Build Workflow (`.github/workflows/build.yml`)
 Runs on every push and PR to `main`/`develop`:
-- Formatting check (clang-format)
-- Clang-tidy (PRs to main only)
-- Build and test matrix
+- Formatting check (`cargo fmt`)
+- Clippy (`-D warnings`, all targets and features)
+- Build and test matrix (Ubuntu and macOS, stable and MSRV 1.89)
 
 ### Docs Workflow (`.github/workflows/docs.yml`)
 Deploys documentation to GitHub Pages when changes are pushed to `develop` in:
 - `docs/**` (documentation content or config)
-- `include/**` (public headers that may affect API docs)
+- `src/**` (sources whose API may affect the docs)
 
 ### Release Workflow (`.github/workflows/release.yml`)
 Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
@@ -114,9 +114,9 @@ Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
 | Pre-release qualifier | `alpha`, `beta`, or `rc` (only with `prerelease`) |
 
 **What the workflow does on merge:**
-1. Extracts version from `CMakeLists.txt` and bumps per labels
+1. Extracts version from `Cargo.toml` and bumps per labels
 2. Updates copyright years (stable releases only, via `scripts/update_copyright.py`)
-3. Updates `VERSION` in `CMakeLists.txt`
+3. Updates `version` in `Cargo.toml` (and the package entry in `Cargo.lock`)
 4. Updates `CHANGELOG.md` (converts `[Unreleased]` to versioned section)
 5. Creates a signed commit and annotated tag
 6. Pushes to `main` and creates a GitHub Release
@@ -137,33 +137,30 @@ Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
 ## Coding Conventions
 
 ### Style
-- Use 4-space indentation
-- Opening braces on same line for control structures
-- Member variables use trailing underscore: `member_variable_`
-- Use `size_t` for sizes and indices
-- Prefer `auto` for complex types, explicit types for primitives
-
-### Header Guards
-Use `#pragma once` (no traditional include guards)
+- Default `rustfmt` formatting (4-space indentation, 100-column lines)
+- Standard Rust naming: `snake_case` functions and fields, `CamelCase` types, `SCREAMING_SNAKE_CASE` constants
+- Constructors and loaders return `bora::Result<T>`; analysis calls are infallible
+- Upstream NeuralFoil names (`CL`, `Top_Xtr`, `TE_thickness`, ...) appear only as Philote variable name strings
 
 ### Documentation
-- Doxygen-style comments for public APIs
-- Brief `@brief` description required
-- Document parameters with `@param`
-- Document return values with `@return`
+- `///` rustdoc comments on all public items
+- Document failure modes under `# Errors` and panics under `# Panics`
 
 ## Testing
 
 ### Test Framework
-Uses Google Test (gtest). Tests are organized by component.
+Cargo integration tests in `tests/`, organized by component. Reference data lives in committed
+HDF5 files under `tests/data/` (regenerate with `scripts/generate_*_ref_data.py` only when
+updating the reference data). `[profile.test]` uses `opt-level = 3` so the reference suites run
+quickly.
 
 ### Running Tests
 ```bash
 # All tests
-ctest --test-dir build
+cargo test --all-features
 
 # Specific test with filter
-./build/test/BoraTests --gtest_filter="*TestName*"
+cargo test --all-features -- TestName
 ```
 
 ## Pull Requests

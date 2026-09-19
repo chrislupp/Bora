@@ -5,84 +5,124 @@ title: "Installation"
 
 # Installation
 
-This guide covers building Bora from source. Bora is a C++20 project built with CMake.
+Bora is a Rust crate built with Cargo. The network weights are stored in HDF5
+files that are read with the pure-Rust [`hdf5-pure`](https://crates.io/crates/hdf5-pure)
+crate, so no system HDF5 library (or any other C dependency) is required.
 
 ## Prerequisites
 
 | Dependency | Minimum Version | Notes |
 |------------|----------------|-------|
-| CMake | 3.20+ | Build system generator |
-| C++ Compiler | GCC 12+ or Clang 16+ | Must support C++20 |
-| GTest | latest | Unit testing framework |
-
-<!-- TODO: Add any additional dependencies your project requires -->
-
-## Building
-
-Clone the repository and build with CMake:
+| Rust toolchain | 1.89+ | Edition 2024; install via [rustup](https://rustup.rs) |
 
 ```bash
-# Configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build all targets
-cmake --build build
+# Install or update the toolchain
+rustup update stable
+rustc --version
 ```
 
-For a debug build with assertions enabled:
+## Using Bora as a Dependency
 
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
+Bora is not published on crates.io. Add it to your project's `Cargo.toml` as a
+git dependency:
+
+```toml
+[dependencies]
+bora = { git = "https://github.com/chrislupp/Bora" }
 ```
 
-To build a specific target only:
+To also get the Philote discipline (`bora::philote`), enable the `philote`
+feature:
+
+```toml
+[dependencies]
+bora = { git = "https://github.com/chrislupp/Bora", features = ["philote"] }
+```
+
+## Building from Source
+
+Clone the repository and build with Cargo:
 
 ```bash
-cmake --build build --target bora
+git clone https://github.com/chrislupp/Bora
+cd Bora
+
+# Release build (recommended; the networks are slow in unoptimized builds)
+cargo build --release
+```
+
+For a debug build:
+
+```bash
+cargo build
+```
+
+### Performance
+
+For the fastest evaluation, compile for the host CPU. On x86-64 this enables
+fused multiply-add (FMA) instructions in the network's inner loops; aarch64
+targets already use them by default.
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
+
+## Cargo Features
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `philote` | off | Philote discipline (`bora::philote::BoraDiscipline`) and the `bora_server` gRPC executable |
+
+Build the discipline server with:
+
+```bash
+cargo build --release --features philote --bin bora_server
 ```
 
 ## Running Tests
 
-Bora uses Google Test. After building, run the full test suite with:
+The test suite consists of Cargo integration tests under `tests/`, including
+validation against reference outputs and gradients stored in
+`tests/data/*.h5`:
 
 ```bash
-ctest --test-dir build
+cargo test
 ```
 
-To run a specific test executable with verbose output:
+To include the Philote discipline tests:
 
 ```bash
-./build/test/BoraTests --gtest_filter="*TestName*"
+cargo test --all-features
 ```
 
-## CMake Options
-
-The following options can be passed during the configure step with `-D`:
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `BUILD_TESTS` | `ON` | Build the test suite |
-| `BUILD_EXAMPLES` | `ON` | Build example programs |
-| `BORA_NATIVE_ARCH` | `ON` | Enable native architecture optimizations (`-march=native`) |
-
-Example with custom options:
+To run a single test file or filter by test name:
 
 ```bash
-cmake -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTS=ON \
-  -DBORA_NATIVE_ARCH=OFF
+cargo test --test neuralfoil
+cargo test gradient
 ```
+
+## Weight Data
+
+The NeuralFoil weights ship in the repository's `data/` directory. At runtime,
+`NeuralFoil` locates them in this order:
+
+1. An explicit directory passed to `NeuralFoil::with_data_dir`.
+2. The `BORA_DATA_DIR` environment variable.
+3. The crate's source-tree `data/` directory (baked in at build time).
+
+If you move the compiled binary away from the source tree, set `BORA_DATA_DIR`
+or pass the directory explicitly.
 
 ## Verifying the Installation
 
-A successful build and test run confirms the installation:
+A successful build, test run, and example run confirms the installation:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build
+cargo build --release
+cargo test
+cargo run --release --example example
 ```
 
-All tests should pass. If any dependencies are not found, CMake will report an error during the configure step.
+All tests should pass, and the example prints the aerodynamic coefficients of
+a sample airfoil.

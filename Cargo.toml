@@ -1,0 +1,45 @@
+[package]
+name = "bora"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+description = "A port of NeuralFoil with analytic gradients"
+authors = ["Christopher Lupp"]
+license = "Apache-2.0"
+repository = "https://github.com/chrislupp/Bora"
+readme = "README.md"
+keywords = ["airfoil", "aerodynamics", "neuralfoil", "optimization"]
+categories = ["science", "simulation"]
+
+[features]
+default = []
+# Philote discipline (`bora::philote`) and the `bora_server` gRPC executable.
+philote = ["dep:philote-mdo", "dep:async-trait", "dep:ndarray", "dep:serde_json", "dep:tokio", "dep:tonic"]
+
+[dependencies]
+hdf5-pure = "0.46"
+thiserror = "2"
+
+philote-mdo = { version = "0.2", optional = true }
+async-trait = { version = "0.1", optional = true }
+ndarray = { version = "0.16", optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"], optional = true }
+tonic = { version = "0.12", optional = true }
+
+[[bin]]
+name = "bora_server"
+required-features = ["philote"]
+
+[[test]]
+name = "philote_discipline"
+required-features = ["philote"]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+# The reference suites evaluate the largest networks hundreds of times;
+# unoptimized builds make `cargo test` needlessly slow.
+[profile.test]
+opt-level = 3
