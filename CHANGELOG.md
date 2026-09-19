@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now checks `cargo fmt` and `cargo clippy`, builds and tests on Ubuntu and macOS with
   stable Rust and the MSRV, and runs the Philote tests; the release workflow bumps the
   version in `Cargo.toml`
+- Documentation site upgraded to Docusaurus 3.10.2 with the `@docusaurus/faster` (Rspack)
+  bundler, fixing production builds broken by webpack 5.106+; `docs/package-lock.json` is now
+  committed so the docs workflow's `npm ci` works
 
 ### Deprecated
 
@@ -58,3 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+- Documentation site: npm `overrides` pin patched transitive dependencies of Docusaurus —
+  `serialize-javascript` ^7.0.5 (GHSA-5c6j-r48x-rmvq, GHSA-qj8w-gfj5-8c6v) and `uuid`
+  ^11.1.1 (GHSA-w5hq-g745-h8pq); `npm audit` reports no vulnerabilities
