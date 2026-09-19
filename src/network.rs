@@ -149,15 +149,15 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     let n = a.len().min(b.len());
     let (a, b) = (&a[..n], &b[..n]);
     let mut s = [0.0; 4];
-    let mut a_chunks = a.chunks_exact(4);
-    let mut b_chunks = b.chunks_exact(4);
-    for (ac, bc) in (&mut a_chunks).zip(&mut b_chunks) {
+    let (a_chunks, a_rest) = a.as_chunks::<4>();
+    let (b_chunks, b_rest) = b.as_chunks::<4>();
+    for (ac, bc) in a_chunks.iter().zip(b_chunks) {
         s[0] = mul_add(ac[0], bc[0], s[0]);
         s[1] = mul_add(ac[1], bc[1], s[1]);
         s[2] = mul_add(ac[2], bc[2], s[2]);
         s[3] = mul_add(ac[3], bc[3], s[3]);
     }
-    for (x, y) in a_chunks.remainder().iter().zip(b_chunks.remainder()) {
+    for (x, y) in a_rest.iter().zip(b_rest) {
         s[0] += x * y;
     }
     (s[0] + s[1]) + (s[2] + s[3])
@@ -276,16 +276,15 @@ impl Network {
 
                 // Jacobian rows accumulate two weighted input rows per pass to
                 // shorten the dependency chain on each jac_row entry.
-                let mut w_pairs = w_row.chunks_exact(2);
-                let mut jac_pairs = current_jac.chunks_exact(2 * n_seed);
-                for (w, jac_in) in (&mut w_pairs).zip(&mut jac_pairs) {
-                    let (w0, w1) = (w[0], w[1]);
+                let (w_pairs, w_rest) = w_row.as_chunks::<2>();
+                for (&[w0, w1], jac_in) in w_pairs.iter().zip(current_jac.chunks_exact(2 * n_seed))
+                {
                     let (jac_in0, jac_in1) = jac_in.split_at(n_seed);
                     for ((dest, a), b) in jac_row.iter_mut().zip(jac_in0).zip(jac_in1) {
                         *dest += w0 * a + w1 * b;
                     }
                 }
-                if let [w] = w_pairs.remainder() {
+                if let [w] = w_rest {
                     let jac_in = &current_jac[(layer.cols - 1) * n_seed..layer.cols * n_seed];
                     for (dest, a) in jac_row.iter_mut().zip(jac_in) {
                         *dest += w * a;
