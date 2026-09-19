@@ -123,6 +123,15 @@ prefer to embed the `.h5` file images into your own binary with
 
 ## Attribution
 
-The neural network weights and model architecture come from
-[NeuralFoil](https://github.com/peterdsharpe/NeuralFoil) by Peter Sharpe (MIT
-license). If you use Bora in academic work, please cite NeuralFoil.
+Bora is derived from [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil)
+by Peter Sharpe: the network architecture, input/output processing, and
+analysis model are ported from NeuralFoil, and the network weights in `data/`
+are converted from its weight files. The Kulfan (CST) geometry utilities follow
+[AeroSandbox](https://github.com/peterdsharpe/AeroSandbox), also by Peter
+Sharpe. Both projects are MIT-licensed; their license notices are reproduced in
+[NOTICE](NOTICE). If you use Bora in academic work, please cite NeuralFoil.
+
+## License
+
+Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). See
+[NOTICE](NOTICE) for third-party attributions.

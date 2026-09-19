@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docusaurus documentation site with custom theme, KaTeX math support, and versioned docs
 - GitHub Actions workflow for automatic documentation deployment to GitHub Pages
 - Docs versioning integrated into the release workflow
+- Apache-2.0 license (`LICENSE`) and a `NOTICE` file reproducing the MIT license notices of
+  NeuralFoil (ported code and network weights) and AeroSandbox (Kulfan geometry)
 
 ### Changed
 

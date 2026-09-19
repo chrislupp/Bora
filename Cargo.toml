@@ -1,10 +1,11 @@
 [package]
 name = "bora"
-version = "0.1.0"
+version = "0.0.0"
 edition = "2024"
 rust-version = "1.89"
 description = "A port of NeuralFoil with analytic gradients"
 authors = ["Christopher Lupp"]
+license = "Apache-2.0"
 repository = "https://github.com/chrislupp/Bora"
 readme = "README.md"
 keywords = ["airfoil", "aerodynamics", "neuralfoil", "optimization"]
