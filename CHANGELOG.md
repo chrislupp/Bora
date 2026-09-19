@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now checks `cargo fmt` and `cargo clippy`, builds and tests on Ubuntu and macOS with
   stable Rust and the MSRV, and runs the Philote tests; the release workflow bumps the
   version in `Cargo.toml`
+- CI workflows use the current Node 24-based major versions of all GitHub Actions (dropping
+  the deprecated Node 20 runtime and the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` workaround),
+  and the documentation builds on Node 24 LTS
 - Documentation site upgraded to Docusaurus 3.10.2 with the `@docusaurus/faster` (Rspack)
   bundler, fixing production builds broken by webpack 5.106+; `docs/package-lock.json` is now
   committed so the docs workflow's `npm ci` works
