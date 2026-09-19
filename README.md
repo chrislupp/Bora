@@ -1,8 +1,8 @@
 # Bora
 
-[![Build and Tests](https://github.com/clupp/Bora/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/clupp/Bora/actions/workflows/build.yml)
+[![Build and Tests](https://github.com/chrislupp/Bora/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/chrislupp/Bora/actions/workflows/build.yml)
 
-A C++20 port of [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil), the
+A Rust port of [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil), the
 physics-informed neural network surrogate of XFoil, with **analytic gradients**
 for gradient-based airfoil design optimization.
 
@@ -25,64 +25,87 @@ sizes (`xxsmall` ... `xxxlarge`) are supported.
 
 ## Quick Start
 
-```cpp
-#include "bora.h"
+```rust
+use bora::{AeroInput, ModelSize, NeuralFoil, input_index};
 
-bora::AeroInput input;
-input.kulfan.upper_weights = {0.24, 0.31, 0.25, 0.35, 0.24, 0.35, 0.28, 0.32};
-input.kulfan.lower_weights = {-0.12, -0.05, -0.13, 0.02, -0.08, 0.06, 0.02, 0.06};
-input.kulfan.TE_thickness = 0.0025;
-input.alpha = 3.0;   // deg
-input.Re = 1e6;
+fn main() -> bora::Result<()> {
+    let mut input = AeroInput::default();
+    input.kulfan.upper_weights = [0.24, 0.31, 0.25, 0.35, 0.24, 0.35, 0.28, 0.32];
+    input.kulfan.lower_weights = [-0.12, -0.05, -0.13, 0.02, -0.08, 0.06, 0.02, 0.06];
+    input.kulfan.te_thickness = 0.0025;
+    input.alpha = 3.0; // deg
+    input.re = 1e6;
 
-const bora::NeuralFoil model(bora::ModelSize::kXLarge);
+    let model = NeuralFoil::new(ModelSize::XLarge)?;
 
-// Analysis only:
-const bora::AeroOutput aero = model.Analyze(input);
+    // Analysis only:
+    let aero = model.analyze(&input);
 
-// Analysis with gradients of every output w.r.t. all inputs:
-const bora::AeroResult result = model.AnalyzeWithGradients(input);
-double dCL_dalpha = result.gradient.CL[bora::input_index::kAlpha];
+    // Analysis with gradients of every output w.r.t. all inputs:
+    let result = model.analyze_with_gradients(&input);
+    let dcl_dalpha = result.gradient.cl[input_index::ALPHA];
+    Ok(())
+}
 ```
 
-See `examples/example.cpp` for basic usage and
-`examples/optimize_airfoil.cpp` for a full gradient-based drag minimization at
-fixed lift.
+Add Bora to your project with:
+
+```toml
+[dependencies]
+bora = { git = "https://github.com/chrislupp/Bora" }
+```
+
+See `examples/example.rs` for basic usage and `examples/optimize_airfoil.rs`
+for a full gradient-based drag minimization at fixed lift.
 
 ## Requirements
 
-- CMake 3.20+
-- C++20 compatible compiler (e.g., GCC 12+, Clang 16+)
-- HDF5 (C library, for loading the network weights)
-- GTest (for unit tests)
+- Rust 1.89+ (install via [rustup](https://rustup.rs))
 
-No external linear algebra or ML runtime dependencies; the network evaluation
-and its Jacobian are implemented directly in the library.
+That's it: the HDF5 weight files are read with the pure-Rust
+[`hdf5-pure`](https://crates.io/crates/hdf5-pure) crate, so no system HDF5
+library is needed, and the network evaluation and its Jacobian are implemented
+directly in the crate with no linear algebra or ML runtime dependencies.
 
 ## Building
 
 ```bash
-# Configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
 # Build
-cmake --build build
+cargo build --release
 
-# Run tests
-ctest --test-dir build
+# Run tests (--all-features includes the Philote discipline)
+cargo test --all-features
 
 # Run examples
-./build/examples/example
-./build/examples/optimize_airfoil
+cargo run --release --example example
+cargo run --release --example optimize_airfoil
+
+# API documentation
+cargo doc --open --all-features
 ```
 
-### CMake Options
+For the best performance on x86-64, build with
+`RUSTFLAGS="-C target-cpu=native"`, which enables the fused multiply-add
+instructions used by the network kernels (always available on aarch64).
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `BUILD_TESTS` | `ON` | Enable/disable test building |
-| `BUILD_EXAMPLES` | `ON` | Enable/disable example programs |
-| `BORA_NATIVE_ARCH` | `ON` | Enable native architecture optimizations |
+### Cargo Features
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `philote` | off | Philote discipline (`bora::philote::BoraDiscipline`) and the `bora_server` gRPC executable |
+
+## Philote Discipline
+
+With the `philote` feature, Bora exposes NeuralFoil function and analytic
+gradient evaluations to any [Philote](https://github.com/MDO-Standards/Philote-MDO)
+client (e.g. OpenMDAO via Philote-Python) over gRPC:
+
+```bash
+cargo run --release --features philote --bin bora_server [address]  # default localhost:50051
+```
+
+Options: `model_size` (str, default `"xlarge"`), `data_directory` (str), and
+`include_boundary_layer` (bool, default `false`).
 
 ## Network Weights
 
@@ -90,13 +113,13 @@ The neural network weights live in `data/` as HDF5 files converted from the
 upstream NeuralFoil `.npz` files (see `scripts/convert_weights.py`). At
 runtime the weight directory is resolved in this order:
 
-1. Explicit `data_dir` constructor argument
+1. Explicit directory (`NeuralFoil::with_data_dir`)
 2. `BORA_DATA_DIR` environment variable
-3. Installed data directory (`<prefix>/share/bora`)
-4. Source-tree `data/` directory (for build-tree use)
+3. The crate's source-tree `data/` directory (baked in at build time)
 
-`bora::Network::FromMemory` / `bora::InputDistribution::FromMemory` are
-available if you prefer to embed the `.h5` file images into your own binary.
+`Network::from_bytes` / `InputDistribution::from_bytes` are available if you
+prefer to embed the `.h5` file images into your own binary with
+`include_bytes!`.
 
 ## Attribution
 

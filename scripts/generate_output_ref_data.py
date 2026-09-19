@@ -3,11 +3,11 @@
 
 Runs `neuralfoil.get_aero_from_kulfan_parameters` over a matrix of airfoils,
 operating conditions, and model sizes, and writes the results to an HDF5 file
-consumed by the GTest suite. The file is committed to the repository, so this
+consumed by the cargo test suite. The file is committed to the repository, so this
 script only needs to be re-run when updating the reference data.
 
 Usage (requires `pip install neuralfoil aerosandbox h5py`):
-    python3 scripts/generate_output_ref_data.py test/data/output_ref_data.h5
+    python3 scripts/generate_output_ref_data.py tests/data/output_ref_data.h5
 """
 
 import sys
@@ -49,7 +49,7 @@ def output_vector(aero: dict) -> list[float]:
 
 
 def main() -> None:
-    out_path = sys.argv[1] if len(sys.argv) > 1 else "test/data/output_ref_data.h5"
+    out_path = sys.argv[1] if len(sys.argv) > 1 else "tests/data/output_ref_data.h5"
 
     names = []
     model_sizes = []

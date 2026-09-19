@@ -4,11 +4,11 @@
 Differentiates `neuralfoil.get_aero_from_kulfan_parameters` with CasADi over
 the same case matrix as generate_output_ref_data.py and writes the jacobians of
 the scalar outputs plus sampled boundary layer stations to an HDF5 file
-consumed by the GTest suite. The file is committed to the repository, so this
+consumed by the cargo test suite. The file is committed to the repository, so this
 script only needs to be re-run when updating the reference data.
 
 Usage (requires `pip install neuralfoil aerosandbox casadi h5py`):
-    python3 scripts/generate_gradient_ref_data.py test/data/gradient_ref_data.h5
+    python3 scripts/generate_gradient_ref_data.py tests/data/gradient_ref_data.h5
 """
 
 import sys
@@ -72,7 +72,7 @@ def build_jacobian_function(model_size: str) -> cs.Function:
 
 
 def main() -> None:
-    out_path = sys.argv[1] if len(sys.argv) > 1 else "test/data/gradient_ref_data.h5"
+    out_path = sys.argv[1] if len(sys.argv) > 1 else "tests/data/gradient_ref_data.h5"
 
     jacobian_functions = {size: build_jacobian_function(size) for size in MODEL_SIZES}
 

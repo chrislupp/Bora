@@ -7,18 +7,17 @@ import rehypeKatex from "rehype-katex";
 const config: Config = {
     title: "Bora",
     tagline:
-        "A C++20 library. Replace this tagline after running setup.sh.",
+        "NeuralFoil airfoil aerodynamics in Rust, with exact analytic gradients for design optimization.",
     favicon: "img/favicon.ico",
 
     future: {
         v4: true,
     },
 
-    // TODO: Update these after running setup.sh
-    url: "https://your-github-username.github.io",
+    url: "https://chrislupp.github.io",
     baseUrl: "/Bora/",
 
-    organizationName: "your-github-username",
+    organizationName: "chrislupp",
     projectName: "Bora",
 
     onBrokenLinks: "throw",
@@ -46,9 +45,8 @@ const config: Config = {
                     sidebarPath: "./sidebars.ts",
                     remarkPlugins: [remarkMath],
                     rehypePlugins: [rehypeKatex],
-                    // TODO: Update repository URL after running setup.sh
                     editUrl:
-                        "https://github.com/your-github-username/Bora/tree/develop/docs/",
+                        "https://github.com/chrislupp/Bora/tree/develop/docs/",
                 },
                 blog: false,
                 theme: {
@@ -83,8 +81,7 @@ const config: Config = {
                     position: "right",
                 },
                 {
-                    // TODO: Update repository URL after running setup.sh
-                    href: "https://github.com/your-github-username/Bora",
+                    href: "https://github.com/chrislupp/Bora",
                     label: "GitHub",
                     position: "right",
                 },
@@ -110,23 +107,22 @@ const config: Config = {
                     title: "More",
                     items: [
                         {
-                            // TODO: Update repository URL after running setup.sh
                             label: "GitHub",
-                            href: "https://github.com/your-github-username/Bora",
+                            href: "https://github.com/chrislupp/Bora",
                         },
                         {
                             label: "Changelog",
-                            href: "https://github.com/your-github-username/Bora/blob/main/CHANGELOG.md",
+                            href: "https://github.com/chrislupp/Bora/blob/main/CHANGELOG.md",
                         },
                     ],
                 },
             ],
-            copyright: `Copyright \u00A9 ${new Date().getFullYear()} Your Name. Built with Docusaurus.`,
+            copyright: `Copyright \u00A9 ${new Date().getFullYear()} Christopher Lupp. Built with Docusaurus.`,
         },
         prism: {
             theme: prismThemes.github,
             darkTheme: prismThemes.dracula,
-            additionalLanguages: ["cmake", "bash"],
+            additionalLanguages: ["rust", "toml", "bash"],
         },
     } satisfies Preset.ThemeConfig,
 };
