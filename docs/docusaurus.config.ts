@@ -117,7 +117,7 @@ const config: Config = {
                     ],
                 },
             ],
-            copyright: `Copyright \u00A9 ${new Date().getFullYear()} Christopher Lupp. Built with Docusaurus.`,
+            copyright: `Copyright \u00A9 ${new Date().getFullYear()} Christopher A. Lupp. Built with Docusaurus.`,
         },
         prism: {
             theme: prismThemes.github,
