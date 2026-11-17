@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Apache-2.0 license header with the public release statement (case number
   AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
-- README citation section with a BibTeX entry for the NeuralFoil paper
+- README citation section with a BibTeX entries for the NeuralFoil paper and Peter Sharpe's
+  PhD thesis
 - Rust port of [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil) 0.3.3: `bora::NeuralFoil`
   predicts CL, CD, CM, transition locations, analysis confidence, and boundary layer
   distributions (theta, H, ue/vinf at 32 stations per surface) from Kulfan (CST) parameters

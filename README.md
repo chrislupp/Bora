@@ -133,7 +133,7 @@ Sharpe. Both projects are MIT-licensed; their license notices are reproduced in
 
 ## Citation
 
-If you use Bora in academic work, please cite the NeuralFoil paper:
+If you use Bora in academic work, please cite the NeuralFoil paper
 
 ```bibtex
 @misc{neuralfoil_paper,
@@ -144,6 +144,18 @@ If you use Bora in academic work, please cite the NeuralFoil paper:
   archivePrefix = {arXiv},
   primaryClass = {physics.flu-dyn},
   url = {https://arxiv.org/abs/2503.16323},
+}
+```
+
+and [Peter Sharpe's PhD thesis](https://dspace.mit.edu/handle/1721.1/157809), whose
+extended chapter on NeuralFoil is its primary long-form documentation:
+
+```bibtex
+@phdthesis{aerosandbox_phd_thesis,
+   title = {Accelerating Practical Engineering Design Optimization with Computational Graph Transformations},
+   author = {Sharpe, Peter D.},
+   school = {Massachusetts Institute of Technology},
+   year = {2024},
 }
 ```
 
