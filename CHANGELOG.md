@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Network::evaluate_first` (only the first `n` outputs) and
   `Network::evaluate_first_with_gradients` (those outputs plus their gradients with respect to the
   network inputs, by reverse-mode differentiation)
+- Apache-2.0 license header with the public release statement (case number
+  AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
+- README citation section with BibTeX entries for the NeuralFoil paper and Peter Sharpe's
+  PhD thesis
 
 ### Changed
 
