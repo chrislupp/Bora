@@ -19,12 +19,20 @@ cargo doc --open --all-features
   `NeuralFoil::new(size)`, `NeuralFoil::with_data_dir(size, dir)`, or
   `NeuralFoil::from_parts(network, distribution)` (all return
   `bora::Result<NeuralFoil>`), then call `analyze(&input)` or
-  `analyze_with_gradients(&input)`. `model_size()` reports the loaded size.
+  `analyze_with_gradients(&input)` for every output, or `analyze_scalars(&input)`
+  or `analyze_scalars_with_gradients(&input)` for the six scalar outputs only
+  (much faster when the boundary layer is not needed; see
+  [Scalar-only analysis](../guide/concepts.md#scalar-only-analysis)).
+  `model_size()` reports the loaded size.
   Immutable and safe to share across threads after construction.
 - **`Network`** / **`Layer`** — Low-level MLP container: loads HDF5 (`.h5`)
   weight files with `Network::load(path)` or `Network::from_bytes(data)` and
-  evaluates the raw network (`evaluate`) with optional forward-mode Jacobian
-  propagation (`evaluate_with_jacobian`).
+  evaluates the raw network (`evaluate`, or `evaluate_pair` for two inputs in
+  one traversal of the weights) with optional forward-mode Jacobian
+  propagation (`evaluate_with_jacobian`). `evaluate_first(x, n, y)` computes
+  only the first `n` outputs, and `evaluate_first_with_gradients(x, n, y, grad)`
+  adds their gradients with respect to the network inputs by reverse-mode
+  differentiation (row-major `n x input_size()`).
 - **`InputDistribution`** — Training-distribution statistics used for the
   Mahalanobis-based analysis confidence; `InputDistribution::load(path)` or
   `InputDistribution::from_bytes(data)`.
@@ -60,6 +68,10 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
   output with respect to the 23 inputs, mirroring the output layout.
 - **`AeroResult`** — Bundles `output: AeroOutput` and
   `gradient: AeroGradients`.
+- **`AeroScalars`** / **`AeroScalarGradients`** / **`AeroScalarResult`** —
+  The scalar fields of `AeroOutput` (`cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`,
+  `analysis_confidence`), their gradients, and the bundle of both returned by
+  `analyze_scalars_with_gradients`.
 - **`Gradient`** — `[f64; NUM_INPUTS]`; indices named in `bora::input_index`
   (`UPPER_WEIGHTS`, `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`,
   `ALPHA`, `RE`, `N_CRIT`, `XTR_UPPER`, `XTR_LOWER`).
@@ -120,6 +132,11 @@ dimensions dropped.
 | `model_size` | str | Network size name, e.g. `"xlarge"` (default) |
 | `data_directory` | str | Directory with the `.h5` weight files; empty uses the standard resolution order |
 | `include_boundary_layer` | bool | Expose boundary layer outputs and their partials (default false) |
+
+Without boundary layer outputs, `compute` uses `analyze_scalars` and
+`compute_partials` uses the reverse-mode `analyze_scalars_with_gradients`, which
+is several times faster. With them, both use the full `analyze` and
+`analyze_with_gradients`.
 
 The `bora_server` binary serves the discipline:
 

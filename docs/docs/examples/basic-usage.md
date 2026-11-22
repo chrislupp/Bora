@@ -86,10 +86,12 @@ cargo run --release --example optimize_airfoil
 ```
 
 Each iteration evaluates the objective and its gradient from a single
-`analyze_with_gradients()` call:
+`analyze_scalars_with_gradients()` call. The objective uses only scalar
+outputs, so the reverse-mode scalar path is enough, and it is ~4.5x faster than
+`analyze_with_gradients()` for the xlarge model:
 
 ```rust
-let result = model.analyze_with_gradients(&input);
+let result = model.analyze_scalars_with_gradients(&input);
 let aero = result.output;
 
 let cl_error = aero.cl - CL_TARGET;

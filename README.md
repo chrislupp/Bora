@@ -84,9 +84,11 @@ cargo run --release --example optimize_airfoil
 cargo doc --open --all-features
 ```
 
-For the best performance on x86-64, build with
-`RUSTFLAGS="-C target-cpu=native"`, which enables the fused multiply-add
-instructions used by the network kernels (always available on aarch64).
+The network kernels use fused multiply-add (FMA) instructions. On x86-64, a
+default build detects AVX2 and FMA at run time and uses them when the CPU has
+them (falling back to SSE2 otherwise); `RUSTFLAGS="-C target-cpu=native"`
+compiles them in statically instead, skipping the check. aarch64 always has
+FMA.
 
 ### Cargo Features
 

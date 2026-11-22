@@ -13,7 +13,7 @@
 use std::fs;
 
 use bora::{
-    AeroInput, AeroOutput, ModelSize, NUM_CST_WEIGHTS_PER_SIDE, NeuralFoil,
+    AeroInput, AeroScalars, ModelSize, NUM_CST_WEIGHTS_PER_SIDE, NeuralFoil,
     generate_kulfan_coordinates, input_index,
 };
 
@@ -38,11 +38,13 @@ fn design_to_input_index(design_index: usize) -> usize {
 struct Objective {
     value: f64,
     gradient: [f64; NUM_DESIGN_VARS],
-    aero: AeroOutput,
+    aero: AeroScalars,
 }
 
 fn evaluate(model: &NeuralFoil, input: &AeroInput) -> Objective {
-    let result = model.analyze_with_gradients(input);
+    // Only scalar outputs enter the objective, so the scalar path suffices; it
+    // is several times faster than `analyze_with_gradients`.
+    let result = model.analyze_scalars_with_gradients(input);
     let aero = result.output;
 
     let cl_error = aero.cl - CL_TARGET;
