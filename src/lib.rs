@@ -66,7 +66,9 @@ mod types;
 
 pub use error::{Error, Result};
 pub use kulfan::{Point2, fit_kulfan_parameters, generate_kulfan_coordinates};
-pub use network::{InputDistribution, Layer, Network};
+pub use network::{
+    BATCH_BLOCK_SIZE, BatchWorkspace, InputDistribution, Layer, Network, NetworkTape,
+};
 pub use neuralfoil::NeuralFoil;
 pub use types::*;
 

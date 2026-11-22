@@ -36,10 +36,12 @@ use std::path::{Path, PathBuf};
 
 use crate::input_index as idx;
 use crate::{
-    AeroGradients, AeroInput, AeroOutput, AeroResult, BoundaryLayerData, BoundaryLayerGradients,
-    Error, Gradient, InputDistribution, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE,
-    NUM_INPUTS, NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, Network, Result,
+    AeroGradients, AeroInput, AeroOutput, AeroResult, AeroTangent, BoundaryLayerData,
+    BoundaryLayerGradients, Error, Gradient, InputDistribution, ModelSize, NUM_BL_POINTS,
+    NUM_CST_WEIGHTS_PER_SIDE, NUM_INPUTS, NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, Network, Result,
 };
+use crate::{BATCH_BLOCK_SIZE, BatchWorkspace};
+use crate::{NetworkTape, ScalarGradients, ScalarOutput};
 
 const N: usize = NUM_BL_POINTS;
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
@@ -112,6 +114,27 @@ fn build_seed_jacobian(input: &AeroInput) -> Vec<f64> {
     set(23, idx::XTR_UPPER, 1.0);
     set(24, idx::XTR_LOWER, 1.0);
     jx
+}
+
+/// Builds the latent input tangent d(latent input)/d(user inputs) * direction,
+/// i.e. the product of the [`build_seed_jacobian`] matrix with `direction`,
+/// without forming the matrix.
+fn build_latent_tangent(input: &AeroInput, direction: &Gradient) -> [f64; NUM_LATENT_INPUTS] {
+    let mut dx = [0.0; NUM_LATENT_INPUTS];
+    dx[..8].copy_from_slice(&direction[idx::UPPER_WEIGHTS..][..NUM_CST_WEIGHTS_PER_SIDE]);
+    dx[8..16].copy_from_slice(&direction[idx::LOWER_WEIGHTS..][..NUM_CST_WEIGHTS_PER_SIDE]);
+    dx[16] = direction[idx::LEADING_EDGE_WEIGHT];
+    dx[17] = 50.0 * direction[idx::TE_THICKNESS];
+    let alpha_rad = input.alpha * DEG_TO_RAD;
+    let d_alpha = direction[idx::ALPHA];
+    dx[18] = 2.0 * DEG_TO_RAD * (2.0 * alpha_rad).cos() * d_alpha;
+    dx[19] = -DEG_TO_RAD * alpha_rad.sin() * d_alpha;
+    dx[20] = DEG_TO_RAD * (2.0 * alpha_rad).sin() * d_alpha;
+    dx[21] = 1.0 / (3.5 * input.re) * direction[idx::RE];
+    dx[22] = 1.0 / 4.5 * direction[idx::N_CRIT];
+    dx[23] = direction[idx::XTR_UPPER];
+    dx[24] = direction[idx::XTR_LOWER];
+    dx
 }
 
 /// Applies the alpha-symmetry flip to the latent input: the airfoil is
@@ -243,6 +266,55 @@ fn decode_outputs(
         gradients.map(|g| &mut g.lower),
     );
     output
+}
+
+/// Propagates the fused latent output tangent `dy_fused` through the decoding
+/// of [`decode_outputs`], given the decoded `output` at the same point. Uses
+/// the same derivative formulas as the gradient path of [`decode_outputs`],
+/// contracted with one direction (`d_re` is the direction's Re component, for
+/// theta's direct dependence on Re).
+fn decode_tangent(
+    y_fused: &[f64],
+    dy_fused: &[f64],
+    input: &AeroInput,
+    d_re: f64,
+    output: &AeroOutput,
+) -> AeroOutput {
+    let conf = output.analysis_confidence;
+    // Clipped transition locations: zero derivative where the clip is active.
+    let clip_active = |v: f64| if v > 0.0 && v < 1.0 { 1.0 } else { 0.0 };
+    let mut tangent = AeroOutput {
+        analysis_confidence: conf * (1.0 - conf) * dy_fused[0],
+        cl: 0.5 * dy_fused[1],
+        cd: 2.0 * output.cd * dy_fused[2],
+        cm: 1.0 / 20.0 * dy_fused[3],
+        top_xtr: clip_active(y_fused[4]) * dy_fused[4],
+        bot_xtr: clip_active(y_fused[5]) * dy_fused[5],
+        ..AeroOutput::default()
+    };
+
+    let decode_surface = |offset: usize, bl: &BoundaryLayerData, bl_dot: &mut BoundaryLayerData| {
+        for i in 0..N {
+            let i_theta = offset + i;
+            let i_h = offset + N + i;
+            let i_ue = offset + 2 * N + i;
+
+            let ue = y_fused[i_ue];
+            let pow_term = 10.0_f64.powf(y_fused[i_theta]);
+            let theta = bl.theta[i];
+            let dtheta_dlatent = LN_10 * pow_term / (ue.abs() * input.re);
+            let dtheta_due = -theta / ue;
+            // theta also depends on Re directly through the decoding.
+            bl_dot.theta[i] = dtheta_dlatent * dy_fused[i_theta]
+                + dtheta_due * dy_fused[i_ue]
+                + (-theta / input.re) * d_re;
+            bl_dot.h[i] = bl.h[i] * dy_fused[i_h];
+            bl_dot.ue_over_vinf[i] = dy_fused[i_ue];
+        }
+    };
+    decode_surface(6, &output.upper, &mut tangent.upper);
+    decode_surface(6 + 3 * N, &output.lower, &mut tangent.lower);
+    tangent
 }
 
 /// Resolves the weight directory: explicit argument, then `BORA_DATA_DIR`,
@@ -410,9 +482,331 @@ impl NeuralFoil {
         AeroResult { output, gradient }
     }
 
+    /// Analyzes an airfoil and computes the directional derivative of every
+    /// output along `direction`, a vector in the same [`NUM_INPUTS`]-entry
+    /// user-input space as [`Gradient`] (ordering given by
+    /// [`input_index`](crate::input_index)).
+    ///
+    /// This is a forward-mode Jacobian-vector product: for every output X,
+    /// `tangent.X == sum_k gradient.X[k] * direction[k]`, where `gradient` is
+    /// what [`analyze_with_gradients`](Self::analyze_with_gradients) returns
+    /// (up to floating-point summation order). A unit vector at
+    /// [`input_index::ALPHA`](crate::input_index::ALPHA) gives d/d(alpha) of
+    /// every output. It propagates a single direction instead of all
+    /// [`NUM_INPUTS`], so it costs roughly two to three [`analyze`](Self::analyze)
+    /// calls rather than an order of magnitude more. `output` is identical to
+    /// [`analyze`](Self::analyze).
+    pub fn analyze_with_tangent(&self, input: &AeroInput, direction: &Gradient) -> AeroTangent {
+        let x = build_latent_input(input);
+        let dx = build_latent_tangent(input, direction);
+
+        let mut x_flipped = [0.0; NUM_LATENT_INPUTS];
+        let mut dx_flipped = [0.0; NUM_LATENT_INPUTS];
+        apply_input_flip(|dest, src, sign| {
+            x_flipped[dest] = sign * x[src];
+            dx_flipped[dest] = sign * dx[src];
+        });
+
+        let mut y = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy = [0.0; NUM_LATENT_OUTPUTS];
+        let mut y_flipped = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy_flipped = [0.0; NUM_LATENT_OUTPUTS];
+        self.network.evaluate_with_tangent(&x, &dx, &mut y, &mut dy);
+        self.network.evaluate_with_tangent(
+            &x_flipped,
+            &dx_flipped,
+            &mut y_flipped,
+            &mut dy_flipped,
+        );
+
+        // Analysis-confidence correction and its directional derivative, for
+        // both passes.
+        let apply_mahalanobis =
+            |x_pass: &[f64], dx_pass: &[f64], y_pass: &mut [f64], dy_pass: &mut [f64]| {
+                let scale = 2.0 * NUM_LATENT_INPUTS as f64;
+                y_pass[0] -= self.distribution.squared_mahalanobis(x_pass) / scale;
+                let mut grad_latent = [0.0; NUM_LATENT_INPUTS];
+                self.distribution
+                    .squared_mahalanobis_gradient(x_pass, &mut grad_latent);
+                let dot: f64 = grad_latent.iter().zip(dx_pass).map(|(g, d)| g * d).sum();
+                dy_pass[0] -= dot / scale;
+            };
+        apply_mahalanobis(&x, &dx, &mut y, &mut dy);
+        apply_mahalanobis(&x_flipped, &dx_flipped, &mut y_flipped, &mut dy_flipped);
+
+        // Un-flip the outputs of the flipped evaluation, then fuse by averaging.
+        let mut y_fused = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy_fused = [0.0; NUM_LATENT_OUTPUTS];
+        apply_output_unflip(|dest, src, sign| {
+            y_fused[dest] = 0.5 * (y[dest] + sign * y_flipped[src]);
+            dy_fused[dest] = 0.5 * (dy[dest] + sign * dy_flipped[src]);
+        });
+
+        let output = decode_outputs(&y_fused, input, None, None);
+        let tangent = decode_tangent(&y_fused, &dy_fused, input, direction[idx::RE], &output);
+        AeroTangent { output, tangent }
+    }
+
     /// Returns the model size this instance was constructed with (or
     /// [`ModelSize::XLarge`] when constructed from pre-loaded components).
     pub fn model_size(&self) -> ModelSize {
         self.size
+    }
+
+    /// Analyzes an airfoil and computes the gradients of selected scalar
+    /// outputs with respect to all [`NUM_INPUTS`] user inputs, by reverse-mode
+    /// differentiation.
+    ///
+    /// Returns the full [`AeroOutput`] (identical to [`analyze`](Self::analyze))
+    /// and one [`Gradient`] per entry of `outputs`, in the order requested
+    /// (repeats allowed). Each gradient equals the corresponding field of
+    /// [`analyze_with_gradients`](Self::analyze_with_gradients) up to rounding,
+    /// including the zero gradient of a clipped transition location.
+    ///
+    /// When only a few outputs are needed (e.g. `[Cl, Cd]`), this is several
+    /// times faster than [`analyze_with_gradients`](Self::analyze_with_gradients):
+    /// it costs one evaluation plus one reverse sweep per distinct requested
+    /// output and network pass, instead of propagating all 23 input directions
+    /// through every latent output.
+    pub fn analyze_with_scalar_gradients(
+        &self,
+        input: &AeroInput,
+        outputs: &[ScalarOutput],
+    ) -> ScalarGradients {
+        let x = build_latent_input(input);
+        let mut x_flipped = [0.0; NUM_LATENT_INPUTS];
+        apply_input_flip(|dest, src, sign| x_flipped[dest] = sign * x[src]);
+
+        // Distinct requested outputs, by latent output index (the enum order
+        // matches the latent layout of the six scalars).
+        let mut slot_of = [usize::MAX; 6];
+        let mut distinct = [0usize; 6];
+        let mut n = 0;
+        for &o in outputs {
+            let i = o as usize;
+            if slot_of[i] == usize::MAX {
+                slot_of[i] = n;
+                distinct[n] = i;
+                n += 1;
+            }
+        }
+
+        // Each fused scalar is y_fused[i] = 0.5 * (y[i] + sign * y_flipped[src]).
+        let mut unflip = [(0usize, 0.0f64); 6];
+        apply_output_unflip(|dest, src, sign| {
+            if dest < 6 {
+                unflip[dest] = (src, sign);
+            }
+        });
+
+        // One forward and one reverse sweep (carrying all n cotangents) per
+        // pass. The cotangents are those of the fused latent scalars; the
+        // decode derivatives are applied at the end, once both passes are known.
+        let mut tape = NetworkTape::default();
+        let mut y_bar = [[0.0; NUM_LATENT_OUTPUTS]; 6];
+        let mut x_bar = [[0.0; NUM_LATENT_INPUTS]; 6];
+        let mut x_bar_flipped = [[0.0; NUM_LATENT_INPUTS]; 6];
+
+        let mut y = [0.0; NUM_LATENT_OUTPUTS];
+        self.network.evaluate_with_tape(&x, &mut y, &mut tape);
+        if n > 0 {
+            for (s, &i) in distinct[..n].iter().enumerate() {
+                y_bar[s][i] = 0.5;
+            }
+            self.network.backpropagate(
+                &mut tape,
+                y_bar[..n].as_flattened(),
+                n,
+                x_bar[..n].as_flattened_mut(),
+            );
+        }
+
+        let mut y_flipped = [0.0; NUM_LATENT_OUTPUTS];
+        self.network
+            .evaluate_with_tape(&x_flipped, &mut y_flipped, &mut tape);
+        if n > 0 {
+            for (s, &i) in distinct[..n].iter().enumerate() {
+                let (src, sign) = unflip[i];
+                y_bar[s] = [0.0; NUM_LATENT_OUTPUTS];
+                y_bar[s][src] = 0.5 * sign;
+            }
+            self.network.backpropagate(
+                &mut tape,
+                y_bar[..n].as_flattened(),
+                n,
+                x_bar_flipped[..n].as_flattened_mut(),
+            );
+        }
+
+        // Analysis-confidence correction, as in `analyze`, and its pullback into
+        // the cotangents that seed latent output 0 of either pass.
+        let scale = 2.0 * NUM_LATENT_INPUTS as f64;
+        y[0] -= self.distribution.squared_mahalanobis(&x) / scale;
+        y_flipped[0] -= self.distribution.squared_mahalanobis(&x_flipped) / scale;
+        // `seed(i)` is the cotangent that fused scalar i places on latent output
+        // 0 of the pass (zero unless it is the confidence).
+        let pull_mahalanobis = |x_pass: &[f64],
+                                x_bar_pass: &mut [[f64; NUM_LATENT_INPUTS]; 6],
+                                seed: &dyn Fn(usize) -> f64| {
+            let mut grad_latent = [0.0; NUM_LATENT_INPUTS];
+            let mut computed = false;
+            for (s, &i) in distinct[..n].iter().enumerate() {
+                let seed = seed(i);
+                if seed == 0.0 {
+                    continue;
+                }
+                if !computed {
+                    self.distribution
+                        .squared_mahalanobis_gradient(x_pass, &mut grad_latent);
+                    computed = true;
+                }
+                for (xb, g) in x_bar_pass[s].iter_mut().zip(&grad_latent) {
+                    *xb -= seed * g / scale;
+                }
+            }
+        };
+        pull_mahalanobis(&x, &mut x_bar, &|i| if i == 0 { 0.5 } else { 0.0 });
+        pull_mahalanobis(&x_flipped, &mut x_bar_flipped, &|i| {
+            let (src, sign) = unflip[i];
+            if src == 0 { 0.5 * sign } else { 0.0 }
+        });
+
+        let mut y_fused = [0.0; NUM_LATENT_OUTPUTS];
+        apply_output_unflip(|dest, src, sign| {
+            y_fused[dest] = 0.5 * (y[dest] + sign * y_flipped[src]);
+        });
+        let output = decode_outputs(&y_fused, input, None, None);
+
+        // Decode derivatives d(output)/d(fused latent scalar), as in
+        // `decode_outputs`.
+        let conf = output.analysis_confidence;
+        let clip_active = |v: f64| if v > 0.0 && v < 1.0 { 1.0 } else { 0.0 };
+        let decode_factor = [
+            conf * (1.0 - conf),
+            0.5,
+            2.0 * output.cd,
+            1.0 / 20.0,
+            clip_active(y_fused[4]),
+            clip_active(y_fused[5]),
+        ];
+
+        // Pull the flipped pass back through the input flip, then the latent
+        // input through the seed Jacobian into the user inputs.
+        let jx = build_seed_jacobian(input);
+        let mut distinct_gradients = [[0.0; NUM_INPUTS]; 6];
+        for s in 0..n {
+            let mut latent = x_bar[s];
+            apply_input_flip(|dest, src, sign| latent[src] += sign * x_bar_flipped[s][dest]);
+            let factor = decode_factor[distinct[s]];
+            let gradient = &mut distinct_gradients[s];
+            for (row, l) in jx.chunks_exact(NUM_INPUTS).zip(&latent) {
+                for (g, j) in gradient.iter_mut().zip(row) {
+                    *g += j * l;
+                }
+            }
+            gradient.iter_mut().for_each(|g| *g *= factor);
+        }
+
+        ScalarGradients {
+            output,
+            gradients: outputs
+                .iter()
+                .map(|&o| distinct_gradients[slot_of[o as usize]])
+                .collect(),
+        }
+    }
+
+    /// Analyzes a batch of operating points (and/or airfoils) at once.
+    ///
+    /// Returns one output per input, in order: `analyze_batch(inputs)[i]` equals
+    /// [`analyze(&inputs[i])`](Self::analyze) to within a few ulps of the
+    /// network outputs (relative differences around 1e-14), but not bit for bit:
+    /// the batched network kernel ([`Network::evaluate_batch`]) sums in a
+    /// different order and evaluates the activation function with a
+    /// vectorizable `exp`. A point's result does not depend on its position in
+    /// the batch or on the other points beyond that rounding level.
+    ///
+    /// For batches of more than a few points this is several times faster per
+    /// point than calling [`analyze`](Self::analyze) in a loop (the speedup
+    /// grows with the model size). Any length works, including zero.
+    ///
+    /// Allocates the returned vector and a scratch workspace; use
+    /// [`analyze_batch_into`](Self::analyze_batch_into) to reuse both across
+    /// calls.
+    pub fn analyze_batch(&self, inputs: &[AeroInput]) -> Vec<AeroOutput> {
+        let mut outputs = vec![AeroOutput::default(); inputs.len()];
+        self.analyze_batch_into(inputs, &mut outputs, &mut BatchWorkspace::default());
+        outputs
+    }
+
+    /// Like [`analyze_batch`](Self::analyze_batch), but writes the results to
+    /// `outputs` (`outputs[i]` for `inputs[i]`) and takes its scratch space from
+    /// `workspace`, so repeated calls with a kept workspace do not allocate.
+    ///
+    /// # Panics
+    ///
+    /// If `outputs` and `inputs` differ in length.
+    pub fn analyze_batch_into(
+        &self,
+        inputs: &[AeroInput],
+        outputs: &mut [AeroOutput],
+        workspace: &mut BatchWorkspace,
+    ) {
+        assert_eq!(
+            inputs.len(),
+            outputs.len(),
+            "analyze_batch_into: inputs and outputs differ in length"
+        );
+        // Each point needs two network passes (the input and its alpha-flipped
+        // image), evaluated as two columns of the same batch: a chunk of
+        // `CHUNK` points fills one `BATCH_BLOCK_SIZE`-column block, with the
+        // points in columns 0..m and their flipped images in columns m..2m.
+        const CHUNK: usize = BATCH_BLOCK_SIZE / 2;
+        const N_IN: usize = NUM_LATENT_INPUTS;
+        const N_OUT: usize = NUM_LATENT_OUTPUTS;
+        let scale = 2.0 * NUM_LATENT_INPUTS as f64;
+
+        let mut x_block = [0.0; N_IN * 2 * CHUNK];
+        let mut y_block = [0.0; N_OUT * 2 * CHUNK];
+        let mut corrections = [0.0; 2 * CHUNK];
+        for (inputs, outputs) in inputs.chunks(CHUNK).zip(outputs.chunks_mut(CHUNK)) {
+            let m = inputs.len();
+            let n_cols = 2 * m;
+
+            for (k, input) in inputs.iter().enumerate() {
+                let x = build_latent_input(input);
+                let mut x_flipped = [0.0; N_IN];
+                apply_input_flip(|dest, src, sign| x_flipped[dest] = sign * x[src]);
+                for j in 0..N_IN {
+                    x_block[j * n_cols + k] = x[j];
+                    x_block[j * n_cols + m + k] = x_flipped[j];
+                }
+                // Analysis-confidence correction (see `analyze`).
+                corrections[k] = self.distribution.squared_mahalanobis_unbuffered(&x) / scale;
+                corrections[m + k] =
+                    self.distribution.squared_mahalanobis_unbuffered(&x_flipped) / scale;
+            }
+
+            self.network
+                .evaluate_batch(&x_block, &mut y_block, n_cols, workspace);
+
+            for (k, (input, output)) in inputs.iter().zip(outputs.iter_mut()).enumerate() {
+                let y = |i: usize| y_block[i * n_cols + k];
+                let y_flipped = |i: usize| y_block[i * n_cols + m + k];
+                let mut y_fused = [0.0; N_OUT];
+                apply_output_unflip(|dest, src, sign| {
+                    let mut value = y(dest);
+                    let mut flipped = y_flipped(src);
+                    if dest == 0 {
+                        value -= corrections[k];
+                    }
+                    if src == 0 {
+                        flipped -= corrections[m + k];
+                    }
+                    y_fused[dest] = 0.5 * (value + sign * flipped);
+                });
+                *output = decode_outputs(&y_fused, input, None, None);
+            }
+        }
     }
 }

@@ -210,6 +210,19 @@ pub struct AeroResult {
     pub gradient: AeroGradients,
 }
 
+/// Analysis outputs bundled with their directional derivative along one
+/// direction in user-input space (a Jacobian-vector product), as returned by
+/// [`NeuralFoil::analyze_with_tangent`](crate::NeuralFoil::analyze_with_tangent).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AeroTangent {
+    /// The analysis outputs, identical to
+    /// [`NeuralFoil::analyze`](crate::NeuralFoil::analyze).
+    pub output: AeroOutput,
+    /// Directional derivative of every field of `output` along the requested
+    /// direction: for each output X, `sum_k gradient.X[k] * direction[k]`.
+    pub tangent: AeroOutput,
+}
+
 /// Available NeuralFoil network sizes (speed/accuracy tradeoff).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ModelSize {
@@ -280,4 +293,70 @@ impl FromStr for ModelSize {
 /// midpoints of a uniform partition of [0, 1] into [`NUM_BL_POINTS`] cells.
 pub fn bl_x_points() -> [f64; NUM_BL_POINTS] {
     std::array::from_fn(|i| (2.0 * i as f64 + 1.0) / (2.0 * NUM_BL_POINTS as f64))
+}
+
+/// A scalar analysis output, selecting a gradient for
+/// [`NeuralFoil::analyze_with_scalar_gradients`](crate::NeuralFoil::analyze_with_scalar_gradients).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ScalarOutput {
+    /// [`AeroOutput::analysis_confidence`].
+    AnalysisConfidence,
+    /// [`AeroOutput::cl`].
+    Cl,
+    /// [`AeroOutput::cd`].
+    Cd,
+    /// [`AeroOutput::cm`].
+    Cm,
+    /// [`AeroOutput::top_xtr`].
+    TopXtr,
+    /// [`AeroOutput::bot_xtr`].
+    BotXtr,
+}
+
+impl ScalarOutput {
+    /// All scalar outputs, in [`AeroOutput`] field order.
+    pub const ALL: [ScalarOutput; 6] = [
+        ScalarOutput::AnalysisConfidence,
+        ScalarOutput::Cl,
+        ScalarOutput::Cd,
+        ScalarOutput::Cm,
+        ScalarOutput::TopXtr,
+        ScalarOutput::BotXtr,
+    ];
+
+    /// Returns this output's value within an [`AeroOutput`].
+    pub fn value_of(self, output: &AeroOutput) -> f64 {
+        match self {
+            ScalarOutput::AnalysisConfidence => output.analysis_confidence,
+            ScalarOutput::Cl => output.cl,
+            ScalarOutput::Cd => output.cd,
+            ScalarOutput::Cm => output.cm,
+            ScalarOutput::TopXtr => output.top_xtr,
+            ScalarOutput::BotXtr => output.bot_xtr,
+        }
+    }
+
+    /// Returns this output's gradient within an [`AeroGradients`].
+    pub fn gradient_of(self, gradients: &AeroGradients) -> &Gradient {
+        match self {
+            ScalarOutput::AnalysisConfidence => &gradients.analysis_confidence,
+            ScalarOutput::Cl => &gradients.cl,
+            ScalarOutput::Cd => &gradients.cd,
+            ScalarOutput::Cm => &gradients.cm,
+            ScalarOutput::TopXtr => &gradients.top_xtr,
+            ScalarOutput::BotXtr => &gradients.bot_xtr,
+        }
+    }
+}
+
+/// Analysis outputs bundled with the gradients of selected scalar outputs, as
+/// returned by
+/// [`NeuralFoil::analyze_with_scalar_gradients`](crate::NeuralFoil::analyze_with_scalar_gradients).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ScalarGradients {
+    /// The full analysis output, identical to
+    /// [`NeuralFoil::analyze`](crate::NeuralFoil::analyze).
+    pub output: AeroOutput,
+    /// One gradient per requested output, in the order requested.
+    pub gradients: Vec<Gradient>,
 }

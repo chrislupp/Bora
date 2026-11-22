@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
 - README citation section with BibTeX entries for the NeuralFoil paper and Peter Sharpe's
   PhD thesis
+- `NeuralFoil::analyze_with_tangent` and `AeroTangent`: forward-mode Jacobian-vector product
+  giving the directional derivative of every output (scalars and boundary layer arrays) along
+  one direction in the 23-entry input space, at about 1.1-1.7x the cost of `analyze` instead of
+  ~13x for `analyze_with_gradients`; backed by the single-direction kernel
+  `Network::evaluate_with_tangent`
+- Reverse-mode gradients of selected scalar outputs:
+  `NeuralFoil::analyze_with_scalar_gradients(&input, &[ScalarOutput::Cl, ScalarOutput::Cd])`
+  returns the full `AeroOutput` plus one gradient per requested output (`ScalarGradients`),
+  matching `analyze_with_gradients` to rounding at a fraction of its cost (`[Cl, Cd]` costs
+  about 1.4-1.7x `analyze` versus 13-18x for the full forward-mode gradients)
+- `ScalarOutput` enum (with `ALL`, `value_of`, and `gradient_of` helpers)
+- Reverse-mode network kernel: `Network::evaluate_with_tape` records a `NetworkTape`, and
+  `Network::backpropagate` computes `J^T y_bar` for one or several output cotangents per sweep
+- Batch analysis: `NeuralFoil::analyze_batch(&inputs) -> Vec<AeroOutput>` and the
+  allocation-free `NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`
+  evaluate many operating points per call, 2.6x (xxsmall) to 5.8x (xxxlarge) faster per point
+  than a loop over `analyze` on an Apple M1 Pro; results match `analyze` to within a few ulps
+- Batched network kernel `Network::evaluate_batch` (feature-major `input_size() x n_points`
+  in, `output_size() x n_points` out) with reusable `BatchWorkspace` scratch space: blocks of
+  `BATCH_BLOCK_SIZE` (8) points are pushed through each weight matrix four output rows at a
+  time with a vectorizable swish activation, 3.4x to 6x faster than per-point `evaluate`
 
 ## [0.1.0] - 2026-09-19
 
