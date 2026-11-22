@@ -699,10 +699,9 @@ fn dense_block<const B: usize, M: MulAdd>(
 
     let w_quads = layer.weights[..rows * cols].chunks_exact(4 * cols);
     let w_rest = w_quads.remainder();
-    let b_quads = layer.biases[..rows].chunks_exact(4);
-    let b_rest = b_quads.remainder();
-    let mut out_quads = output.chunks_exact_mut(4);
-    for ((w4, b4), out4) in w_quads.zip(b_quads).zip(&mut out_quads) {
+    let (b_quads, b_rest) = layer.biases[..rows].as_chunks::<4>();
+    let (out_quads, out_rest) = output.as_chunks_mut::<4>();
+    for ((w4, b4), out4) in w_quads.zip(b_quads).zip(out_quads) {
         let (w0, w123) = w4.split_at(cols);
         let (w1, w23) = w123.split_at(cols);
         let (w2, w3) = w23.split_at(cols);
@@ -724,10 +723,9 @@ fn dense_block<const B: usize, M: MulAdd>(
             swish_block::<B, M>(&mut a2);
             swish_block::<B, M>(&mut a3);
         }
-        out4.copy_from_slice(&[a0, a1, a2, a3]);
+        *out4 = [a0, a1, a2, a3];
     }
 
-    let out_rest = out_quads.into_remainder();
     for ((w_row, &bias), out) in w_rest.chunks_exact(cols).zip(b_rest).zip(out_rest) {
         let mut acc = [bias; B];
         for (x, &v) in input.iter().zip(w_row) {
