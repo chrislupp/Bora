@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Apache-2.0 license header with the public release statement (case number
+  AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
+- README citation section with BibTeX entries for the NeuralFoil paper and Peter Sharpe's
+  PhD thesis
+
 ## [0.1.0] - 2026-09-19
 
 ### Added

@@ -129,9 +129,52 @@ analysis model are ported from NeuralFoil, and the network weights in `data/`
 are converted from its weight files. The Kulfan (CST) geometry utilities follow
 [AeroSandbox](https://github.com/peterdsharpe/AeroSandbox), also by Peter
 Sharpe. Both projects are MIT-licensed; their license notices are reproduced in
-[NOTICE](NOTICE). If you use Bora in academic work, please cite NeuralFoil.
+[NOTICE](NOTICE).
+
+## Citation
+
+If you use Bora in academic work, please cite the NeuralFoil paper
+
+```bibtex
+@misc{neuralfoil_paper,
+  title = {{NeuralFoil}: An Airfoil Aerodynamics Analysis Tool Using Physics-Informed Machine Learning},
+  author = {Peter Sharpe and R. John Hansman},
+  year = {2025},
+  eprint = {2503.16323},
+  archivePrefix = {arXiv},
+  primaryClass = {physics.flu-dyn},
+  url = {https://arxiv.org/abs/2503.16323},
+}
+```
+
+and [Peter Sharpe's PhD thesis](https://dspace.mit.edu/handle/1721.1/157809), whose
+extended chapter on NeuralFoil is its primary long-form documentation:
+
+```bibtex
+@phdthesis{aerosandbox_phd_thesis,
+   title = {Accelerating Practical Engineering Design Optimization with Computational Graph Transformations},
+   author = {Sharpe, Peter D.},
+   school = {Massachusetts Institute of Technology},
+   year = {2024},
+}
+```
 
 ## License
 
 Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). See
 [NOTICE](NOTICE) for third-party attributions.
+
+## Public Release
+
+This work has been cleared for public release, distribution unlimited, case
+number: AFRL-2026-2087.
+
+The views expressed are those of the authors and do not reflect the official
+guidance or position of the United States Government, the Department of
+Defense or of the United States Air Force.
+
+Statement from DoD: The Appearance of external hyperlinks does not constitute
+endorsement by the United States Department of Defense (DoD) of the linked
+websites, of the information, products, or services contained therein. The DoD
+does not exercise any editorial, security, or other control over the
+information you may find at these locations.
