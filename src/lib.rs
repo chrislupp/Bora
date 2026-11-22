@@ -39,6 +39,12 @@
 //! confidence — optionally with the gradient of every output with respect to
 //! all [`NUM_INPUTS`] inputs.
 //!
+//! When only the scalar outputs (coefficients, transition locations and
+//! confidence) are needed, [`NeuralFoil::analyze_scalars`] and
+//! [`NeuralFoil::analyze_scalars_with_gradients`] skip the boundary layer; the
+//! latter differentiates in reverse mode and is several times faster than
+//! [`NeuralFoil::analyze_with_gradients`].
+//!
 //! ```no_run
 //! use bora::{AeroInput, ModelSize, NeuralFoil, input_index};
 //!
@@ -53,6 +59,10 @@
 //! let aero = model.analyze(&input);
 //! let result = model.analyze_with_gradients(&input);
 //! let dcl_dalpha = result.gradient.cl[input_index::ALPHA];
+//!
+//! // Scalar outputs only, with gradients:
+//! let scalars = model.analyze_scalars_with_gradients(&input);
+//! let dcd_dalpha = scalars.gradient.cd[input_index::ALPHA];
 //! # Ok::<(), bora::Error>(())
 //! ```
 

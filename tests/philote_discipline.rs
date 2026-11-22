@@ -99,8 +99,10 @@ fn make_inputs(input: &AeroInput) -> ArrayMap {
         .collect()
 }
 
+/// The discipline's default configuration (no boundary layer outputs) takes
+/// the scalar-only gradient path, so that is the bitwise reference.
 fn scalar_gradients(model: &NeuralFoil, input: &AeroInput) -> [Gradient; 6] {
-    let g = model.analyze_with_gradients(input).gradient;
+    let g = model.analyze_scalars_with_gradients(input).gradient;
     [
         g.cl,
         g.cd,

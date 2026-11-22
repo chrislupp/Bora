@@ -36,12 +36,18 @@ use std::path::{Path, PathBuf};
 
 use crate::input_index as idx;
 use crate::{
-    AeroGradients, AeroInput, AeroOutput, AeroResult, BoundaryLayerData, BoundaryLayerGradients,
-    Error, Gradient, InputDistribution, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE,
-    NUM_INPUTS, NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, Network, Result,
+    AeroGradients, AeroInput, AeroOutput, AeroResult, AeroScalarGradients, AeroScalarResult,
+    AeroScalars, BoundaryLayerData, BoundaryLayerGradients, Error, Gradient, InputDistribution,
+    ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE, NUM_INPUTS, NUM_LATENT_INPUTS,
+    NUM_LATENT_OUTPUTS, Network, Result,
 };
 
 const N: usize = NUM_BL_POINTS;
+/// Number of scalar network outputs, which lead the latent output vector.
+const NUM_SCALARS: usize = 6;
+/// Divisor of the squared Mahalanobis distance in the analysis-confidence
+/// correction.
+const CONFIDENCE_SCALE: f64 = 2.0 * NUM_LATENT_INPUTS as f64;
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0;
 
 /// Source-tree weight directory, used when no other location is given.
@@ -93,10 +99,17 @@ fn build_latent_input(input: &AeroInput) -> [f64; NUM_LATENT_INPUTS] {
 
 /// Builds the seed Jacobian d(latent input)/d(user inputs), row-major
 /// `NUM_LATENT_INPUTS x NUM_INPUTS`.
-fn build_seed_jacobian(input: &AeroInput) -> Vec<f64> {
-    let mut jx = vec![0.0; NUM_LATENT_INPUTS * NUM_INPUTS];
-    let mut set = |row: usize, col: usize, value: f64| jx[row * NUM_INPUTS + col] = value;
+fn build_seed_jacobian(input: &AeroInput) -> [f64; NUM_LATENT_INPUTS * NUM_INPUTS] {
+    let mut jx = [0.0; NUM_LATENT_INPUTS * NUM_INPUTS];
+    seed_jacobian_entries(input, |row, col, value| jx[row * NUM_INPUTS + col] = value);
+    jx
+}
 
+/// Enumerates the nonzero entries of the seed Jacobian d(latent input)/d(user
+/// inputs). The callback receives (latent row, user input column, value);
+/// each (row, col) pair occurs once. Every latent row has a single nonzero
+/// except that alpha feeds three rows (18, 19, 20).
+fn seed_jacobian_entries(input: &AeroInput, mut set: impl FnMut(usize, usize, f64)) {
     for i in 0..NUM_CST_WEIGHTS_PER_SIDE {
         set(i, idx::UPPER_WEIGHTS + i, 1.0);
         set(8 + i, idx::LOWER_WEIGHTS + i, 1.0);
@@ -111,7 +124,13 @@ fn build_seed_jacobian(input: &AeroInput) -> Vec<f64> {
     set(22, idx::N_CRIT, 1.0 / 4.5);
     set(23, idx::XTR_UPPER, 1.0);
     set(24, idx::XTR_LOWER, 1.0);
-    jx
+}
+
+/// Applies the alpha-symmetry flip to a latent input vector.
+fn flip_latent_input(x: &[f64; NUM_LATENT_INPUTS]) -> [f64; NUM_LATENT_INPUTS] {
+    let mut x_flipped = [0.0; NUM_LATENT_INPUTS];
+    apply_input_flip(|dest, src, sign| x_flipped[dest] = sign * x[src]);
+    x_flipped
 }
 
 /// Applies the alpha-symmetry flip to the latent input: the airfoil is
@@ -138,12 +157,7 @@ fn apply_input_flip(mut apply: impl FnMut(usize, usize, f64)) {
 /// bringing them back to the original airfoil's orientation. The callback
 /// receives (dest_index, source_index, sign) and covers every output index.
 fn apply_output_unflip(mut apply: impl FnMut(usize, usize, f64)) {
-    apply(0, 0, 1.0); // analysis confidence
-    apply(1, 1, -1.0); // CL
-    apply(2, 2, 1.0); // CD
-    apply(3, 3, -1.0); // CM
-    apply(4, 5, 1.0); // Top_Xtr <- Bot_Xtr
-    apply(5, 4, 1.0); // Bot_Xtr <- Top_Xtr
+    apply_scalar_output_unflip(&mut apply);
     for i in 0..2 * N {
         apply(6 + i, 6 + 3 * N + i, 1.0); // upper theta, H <- lower theta, H
         apply(6 + 3 * N + i, 6 + i, 1.0); // lower theta, H <- upper theta, H
@@ -151,6 +165,55 @@ fn apply_output_unflip(mut apply: impl FnMut(usize, usize, f64)) {
     for i in 0..N {
         apply(6 + 2 * N + i, 6 + 5 * N + i, -1.0); // upper ue <- -lower ue
         apply(6 + 5 * N + i, 6 + 2 * N + i, -1.0); // lower ue <- -upper ue
+    }
+}
+
+/// The part of [`apply_output_unflip`] covering the [`NUM_SCALARS`] scalar
+/// outputs; every (dest, source) pair lies below `NUM_SCALARS`.
+fn apply_scalar_output_unflip(mut apply: impl FnMut(usize, usize, f64)) {
+    apply(0, 0, 1.0); // analysis confidence
+    apply(1, 1, -1.0); // CL
+    apply(2, 2, 1.0); // CD
+    apply(3, 3, -1.0); // CM
+    apply(4, 5, 1.0); // Top_Xtr <- Bot_Xtr
+    apply(5, 4, 1.0); // Bot_Xtr <- Top_Xtr
+}
+
+/// Decodes the first [`NUM_SCALARS`] fused latent outputs into the scalar
+/// outputs, with the same scaling/squashing as upstream NeuralFoil.
+fn decode_scalars(y_fused: &[f64]) -> AeroScalars {
+    AeroScalars {
+        analysis_confidence: stable_sigmoid(y_fused[0]),
+        cl: y_fused[1] / 2.0,
+        cd: ((y_fused[2] - 2.0) * 2.0).exp(),
+        cm: y_fused[3] / 20.0,
+        top_xtr: y_fused[4].clamp(0.0, 1.0),
+        bot_xtr: y_fused[5].clamp(0.0, 1.0),
+    }
+}
+
+/// Propagates the gradients of the fused latent scalar outputs (`jac_row(i)`
+/// for latent output `i`, w.r.t. the user inputs) through
+/// [`decode_scalars`]; `output` is its result for `y_fused`.
+fn decode_scalar_gradients<'a>(
+    y_fused: &[f64],
+    output: &AeroScalars,
+    jac_row: impl Fn(usize) -> &'a [f64],
+) -> AeroScalarGradients {
+    let scale_row = |i: usize, factor: f64| -> Gradient {
+        let row = jac_row(i);
+        std::array::from_fn(|k| factor * row[k])
+    };
+    let conf = output.analysis_confidence;
+    // Clipped transition locations: zero gradient where the clip is active.
+    let clip_active = |v: f64| if v > 0.0 && v < 1.0 { 1.0 } else { 0.0 };
+    AeroScalarGradients {
+        analysis_confidence: scale_row(0, conf * (1.0 - conf)),
+        cl: scale_row(1, 0.5),
+        cd: scale_row(2, 2.0 * output.cd),
+        cm: scale_row(3, 1.0 / 20.0),
+        top_xtr: scale_row(4, clip_active(y_fused[4])),
+        bot_xtr: scale_row(5, clip_active(y_fused[5])),
     }
 }
 
@@ -163,34 +226,28 @@ fn decode_outputs(
     jy_fused: Option<&[f64]>,
     mut gradients: Option<&mut AeroGradients>,
 ) -> AeroOutput {
+    let scalars = decode_scalars(y_fused);
     let mut output = AeroOutput {
-        // Scalar outputs, with the same scaling/squashing as upstream NeuralFoil.
-        analysis_confidence: stable_sigmoid(y_fused[0]),
-        cl: y_fused[1] / 2.0,
-        cd: ((y_fused[2] - 2.0) * 2.0).exp(),
-        cm: y_fused[3] / 20.0,
-        top_xtr: y_fused[4].clamp(0.0, 1.0),
-        bot_xtr: y_fused[5].clamp(0.0, 1.0),
+        analysis_confidence: scalars.analysis_confidence,
+        cl: scalars.cl,
+        cd: scalars.cd,
+        cm: scalars.cm,
+        top_xtr: scalars.top_xtr,
+        bot_xtr: scalars.bot_xtr,
         ..AeroOutput::default()
     };
 
     let jac_row =
         |i: usize| &jy_fused.expect("gradients require a Jacobian")[i * NUM_INPUTS..][..NUM_INPUTS];
-    let scale_row = |i: usize, factor: f64| -> Gradient {
-        let row = jac_row(i);
-        std::array::from_fn(|k| factor * row[k])
-    };
 
     if let Some(g) = gradients.as_deref_mut() {
-        let conf = output.analysis_confidence;
-        // Clipped transition locations: zero gradient where the clip is active.
-        let clip_active = |v: f64| if v > 0.0 && v < 1.0 { 1.0 } else { 0.0 };
-        g.analysis_confidence = scale_row(0, conf * (1.0 - conf));
-        g.cl = scale_row(1, 0.5);
-        g.cd = scale_row(2, 2.0 * output.cd);
-        g.cm = scale_row(3, 1.0 / 20.0);
-        g.top_xtr = scale_row(4, clip_active(y_fused[4]));
-        g.bot_xtr = scale_row(5, clip_active(y_fused[5]));
+        let sg = decode_scalar_gradients(y_fused, &scalars, jac_row);
+        g.analysis_confidence = sg.analysis_confidence;
+        g.cl = sg.cl;
+        g.cd = sg.cd;
+        g.cm = sg.cm;
+        g.top_xtr = sg.top_xtr;
+        g.bot_xtr = sg.bot_xtr;
     }
 
     // Boundary layer distributions. Latent layout per surface: theta encoding,
@@ -324,19 +381,20 @@ impl NeuralFoil {
         let x = build_latent_input(input);
 
         // Flipped input: embeds the alpha-symmetry invariant of airfoil analysis.
-        let mut x_flipped = [0.0; NUM_LATENT_INPUTS];
-        apply_input_flip(|dest, src, sign| x_flipped[dest] = sign * x[src]);
+        let x_flipped = flip_latent_input(&x);
 
+        // Both inputs share one traversal of the weights; each goes through the
+        // same operations as a single evaluation, which keeps the fused result
+        // exactly symmetric.
         let mut y = [0.0; NUM_LATENT_OUTPUTS];
         let mut y_flipped = [0.0; NUM_LATENT_OUTPUTS];
-        self.network.evaluate(&x, &mut y);
-        self.network.evaluate(&x_flipped, &mut y_flipped);
+        self.network
+            .evaluate_pair([&x, &x_flipped], [&mut y, &mut y_flipped]);
 
         // Analysis-confidence correction: decays confidence with distance from
         // the training data distribution (this term was baked into training).
-        let scale = 2.0 * NUM_LATENT_INPUTS as f64;
-        y[0] -= self.distribution.squared_mahalanobis(&x) / scale;
-        y_flipped[0] -= self.distribution.squared_mahalanobis(&x_flipped) / scale;
+        y[0] -= self.distribution.squared_mahalanobis(&x) / CONFIDENCE_SCALE;
+        y_flipped[0] -= self.distribution.squared_mahalanobis(&x_flipped) / CONFIDENCE_SCALE;
 
         // Un-flip the outputs of the flipped evaluation, then fuse by averaging.
         let mut y_fused = [0.0; NUM_LATENT_OUTPUTS];
@@ -355,7 +413,7 @@ impl NeuralFoil {
         let jx = build_seed_jacobian(input);
 
         let mut x_flipped = [0.0; NUM_LATENT_INPUTS];
-        let mut jx_flipped = vec![0.0; NUM_LATENT_INPUTS * NUM_INPUTS];
+        let mut jx_flipped = [0.0; NUM_LATENT_INPUTS * NUM_INPUTS];
         apply_input_flip(|dest, src, sign| {
             x_flipped[dest] = sign * x[src];
             for k in 0..NUM_INPUTS {
@@ -363,6 +421,10 @@ impl NeuralFoil {
             }
         });
 
+        // Two single-input passes: batching both inputs into one traversal of
+        // the weights measured no faster for the small models and ~50% slower
+        // for xxxlarge, where two inputs' padded Jacobians (2 x 98 KB per
+        // layer) overflow the L1 data cache.
         let mut y = [0.0; NUM_LATENT_OUTPUTS];
         let mut jy = vec![0.0; NUM_LATENT_OUTPUTS * NUM_INPUTS];
         let mut y_flipped = [0.0; NUM_LATENT_OUTPUTS];
@@ -380,7 +442,7 @@ impl NeuralFoil {
         // Analysis-confidence correction and its gradient, for both passes.
         let apply_mahalanobis =
             |x_pass: &[f64], jx_pass: &[f64], y_pass: &mut [f64], jy_pass: &mut [f64]| {
-                let scale = 2.0 * NUM_LATENT_INPUTS as f64;
+                let scale = CONFIDENCE_SCALE;
                 y_pass[0] -= self.distribution.squared_mahalanobis(x_pass) / scale;
                 let mut grad_latent = [0.0; NUM_LATENT_INPUTS];
                 self.distribution
@@ -408,6 +470,107 @@ impl NeuralFoil {
         let mut gradient = AeroGradients::default();
         let output = decode_outputs(&y_fused, input, Some(&jy_fused), Some(&mut gradient));
         AeroResult { output, gradient }
+    }
+
+    /// Analyzes an airfoil, computing only the scalar outputs (analysis
+    /// confidence, CL, CD, CM and the transition locations).
+    ///
+    /// The results are bitwise identical to the corresponding fields of
+    /// [`analyze`](Self::analyze), which additionally evaluates and decodes
+    /// the 192 boundary layer outputs of the network; skipping them makes this
+    /// ~1.1x (xxxlarge) to ~2.2x (xxsmall) faster.
+    pub fn analyze_scalars(&self, input: &AeroInput) -> AeroScalars {
+        let x = build_latent_input(input);
+        let x_flipped = flip_latent_input(&x);
+
+        let mut y = [0.0; NUM_SCALARS];
+        let mut y_flipped = [0.0; NUM_SCALARS];
+        self.network
+            .evaluate_first_pair([&x, &x_flipped], NUM_SCALARS, [&mut y, &mut y_flipped]);
+
+        y[0] -= self.distribution.squared_mahalanobis(&x) / CONFIDENCE_SCALE;
+        y_flipped[0] -= self.distribution.squared_mahalanobis(&x_flipped) / CONFIDENCE_SCALE;
+
+        let mut y_fused = [0.0; NUM_SCALARS];
+        apply_scalar_output_unflip(|dest, src, sign| {
+            y_fused[dest] = 0.5 * (y[dest] + sign * y_flipped[src]);
+        });
+        decode_scalars(&y_fused)
+    }
+
+    /// Analyzes an airfoil and computes analytic gradients of the scalar
+    /// outputs (analysis confidence, CL, CD, CM and the transition locations)
+    /// with respect to all [`NUM_INPUTS`] user inputs.
+    ///
+    /// Use this instead of [`analyze_with_gradients`](Self::analyze_with_gradients)
+    /// when the boundary layer gradients are not needed, e.g. in optimization
+    /// with aerodynamic-coefficient objectives and constraints: it
+    /// differentiates the network in reverse mode (one adjoint per scalar
+    /// output) rather than forward mode (one seed per input), which is ~4x
+    /// (xxxlarge) to ~8x (xxsmall) faster.
+    ///
+    /// The outputs are bitwise identical to [`analyze`](Self::analyze) and the
+    /// gradients agree with those of `analyze_with_gradients` up to rounding
+    /// (the sums are formed in a different order).
+    pub fn analyze_scalars_with_gradients(&self, input: &AeroInput) -> AeroScalarResult {
+        const L: usize = NUM_LATENT_INPUTS;
+        let x = build_latent_input(input);
+        let x_flipped = flip_latent_input(&x);
+
+        // Values and gradients w.r.t. the latent inputs, row-major
+        // `NUM_SCALARS x NUM_LATENT_INPUTS`, for both passes.
+        let mut y = [0.0; NUM_SCALARS];
+        let mut y_flipped = [0.0; NUM_SCALARS];
+        let mut g = [0.0; NUM_SCALARS * L];
+        let mut g_flipped = [0.0; NUM_SCALARS * L];
+        self.network.evaluate_first_with_gradients_pair(
+            [&x, &x_flipped],
+            NUM_SCALARS,
+            [&mut y, &mut y_flipped],
+            [&mut g, &mut g_flipped],
+        );
+
+        // Analysis-confidence correction and its latent gradient.
+        let apply_mahalanobis = |x_pass: &[f64], y_pass: &mut [f64], g_pass: &mut [f64]| {
+            let mut grad_latent = [0.0; L];
+            let distance = self
+                .distribution
+                .squared_mahalanobis_with_gradient(x_pass, &mut grad_latent);
+            y_pass[0] -= distance / CONFIDENCE_SCALE;
+            for (g, d) in g_pass[..L].iter_mut().zip(grad_latent) {
+                *g -= d / CONFIDENCE_SCALE;
+            }
+        };
+        apply_mahalanobis(&x, &mut y, &mut g);
+        apply_mahalanobis(&x_flipped, &mut y_flipped, &mut g_flipped);
+
+        // Fuse in the latent space of the original input: the flipped pass
+        // sees x_flipped = F x, so its gradients map back through F^T.
+        let mut y_fused = [0.0; NUM_SCALARS];
+        let mut g_fused = [[0.0; L]; NUM_SCALARS];
+        apply_scalar_output_unflip(|dest, src, sign| {
+            y_fused[dest] = 0.5 * (y[dest] + sign * y_flipped[src]);
+            let row = &mut g_fused[dest];
+            for (r, g) in row.iter_mut().zip(&g[dest * L..][..L]) {
+                *r = 0.5 * g;
+            }
+            let g_src = &g_flipped[src * L..][..L];
+            apply_input_flip(|i_flip, i, flip_sign| {
+                row[i] += 0.5 * sign * flip_sign * g_src[i_flip];
+            });
+        });
+
+        // Chain to the user inputs through the sparse seed Jacobian.
+        let mut jy_fused = [[0.0; NUM_INPUTS]; NUM_SCALARS];
+        seed_jacobian_entries(input, |row, col, value| {
+            for (jy, g) in jy_fused.iter_mut().zip(&g_fused) {
+                jy[col] += g[row] * value;
+            }
+        });
+
+        let output = decode_scalars(&y_fused);
+        let gradient = decode_scalar_gradients(&y_fused, &output, |i| &jy_fused[i]);
+        AeroScalarResult { output, gradient }
     }
 
     /// Returns the model size this instance was constructed with (or

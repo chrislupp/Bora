@@ -59,13 +59,23 @@ cargo build
 
 ### Performance
 
-For the fastest evaluation, compile for the host CPU. On x86-64 this enables
-fused multiply-add (FMA) instructions in the network's inner loops; aarch64
-targets already use them by default.
+The network's inner loops use fused multiply-add (FMA) instructions. aarch64
+targets always have them. On x86-64, a default build checks once whether the
+CPU supports AVX2 and FMA and, if so, runs the network with them (256-bit
+vectors and FMA); older CPUs use the SSE2 baseline. No build flags are needed
+for this.
+
+Compiling for the host CPU builds the AVX2/FMA code in statically, which
+skips the run-time check (and lets the rest of the crate use the host's
+instruction set), at the cost of a binary that only runs on CPUs like the
+build machine:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
+
+Results with and without FMA differ in the last bits, so the same input can
+give slightly different outputs on different x86-64 machines.
 
 ## Cargo Features
 

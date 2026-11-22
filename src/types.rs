@@ -157,6 +157,25 @@ pub struct AeroOutput {
     pub lower: BoundaryLayerData,
 }
 
+/// The scalar analysis outputs: the fields of [`AeroOutput`] without the
+/// boundary layer distributions, as returned by
+/// [`NeuralFoil::analyze_scalars`](crate::NeuralFoil::analyze_scalars).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AeroScalars {
+    /// Network confidence in [0, 1].
+    pub analysis_confidence: f64,
+    /// Lift coefficient.
+    pub cl: f64,
+    /// Drag coefficient.
+    pub cd: f64,
+    /// Quarter-chord moment coefficient.
+    pub cm: f64,
+    /// Upper surface transition location (x/c).
+    pub top_xtr: f64,
+    /// Lower surface transition location (x/c).
+    pub bot_xtr: f64,
+}
+
 /// Gradients of the boundary layer quantities on one surface.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoundaryLayerGradients {
@@ -208,6 +227,26 @@ impl Default for AeroGradients {
 pub struct AeroResult {
     pub output: AeroOutput,
     pub gradient: AeroGradients,
+}
+
+/// Gradients of the scalar analysis outputs with respect to the user inputs:
+/// the fields of [`AeroGradients`] without the boundary layer gradients.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AeroScalarGradients {
+    pub analysis_confidence: Gradient,
+    pub cl: Gradient,
+    pub cd: Gradient,
+    pub cm: Gradient,
+    pub top_xtr: Gradient,
+    pub bot_xtr: Gradient,
+}
+
+/// Scalar analysis outputs bundled with their gradients, as returned by
+/// [`NeuralFoil::analyze_scalars_with_gradients`](crate::NeuralFoil::analyze_scalars_with_gradients).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AeroScalarResult {
+    pub output: AeroScalars,
+    pub gradient: AeroScalarGradients,
 }
 
 /// Available NeuralFoil network sizes (speed/accuracy tradeoff).

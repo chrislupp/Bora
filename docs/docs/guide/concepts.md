@@ -73,9 +73,47 @@ For example, $\partial C_L / \partial \alpha$ is
 coefficient to the third upper-surface weight is
 `result.gradient.cd[input_index::UPPER_WEIGHTS + 2]`.
 
-Gradients are computed by forward-mode differentiation through the network and
+Gradients are computed by algorithmic differentiation through the network and
 all output decodings, so they are exact to machine precision (the two clipped
 transition outputs have zero gradient where the clip is active).
+
+## Scalar-only analysis
+
+Most design studies only need the six scalar outputs: `cl`, `cd`, `cm`,
+`top_xtr`, `bot_xtr`, and `analysis_confidence`. For those, use the scalar
+paths, which skip the 192 boundary layer outputs of the network:
+
+| Call | Returns | Use when |
+|------|---------|----------|
+| `analyze_scalars()` | `AeroScalars` | Values only, no boundary layer |
+| `analyze_scalars_with_gradients()` | `AeroScalarResult` (`output: AeroScalars`, `gradient: AeroScalarGradients`) | Gradients of the scalar outputs, e.g. optimization objectives and constraints built from coefficients |
+| `analyze()` / `analyze_with_gradients()` | `AeroOutput` / `AeroResult` | You need the boundary layer distributions or their gradients |
+
+The scalar types have the same field names as `AeroOutput` and
+`AeroGradients`, so switching is usually a one-line change:
+
+```rust
+let result = model.analyze_scalars_with_gradients(&input);
+let dcd_dalpha = result.gradient.cd[input_index::ALPHA];
+```
+
+`analyze_scalars_with_gradients()` differentiates the network in reverse mode,
+with one adjoint per scalar output. `analyze_with_gradients()` uses forward
+mode, with one seed per input, which suits its 198 outputs. For six outputs,
+reverse mode is much cheaper. Measured on an Apple M1 Pro (µs per call):
+
+| Model | `analyze` | `analyze_scalars` | `analyze_with_gradients` | `analyze_scalars_with_gradients` |
+|-------|----------:|------------------:|-------------------------:|---------------------------------:|
+| xxsmall | 4.9 | 2.2 | 57 | 7.0 |
+| medium | 9.2 | 5.8 | 104 | 19 |
+| xlarge | 27 | 21 | 321 | 71 |
+| xxxlarge | 355 | 329 | 4473 | 1126 |
+
+The scalar values are bitwise identical to those of `analyze()`. The scalar
+gradients agree with `analyze_with_gradients()` up to rounding, because the same
+sums are formed in a different order. Across the test suite's inputs, the
+differences stay below 1e-13 of each gradient's largest entry. Run `cargo bench` to time every call on your
+machine.
 
 ## Analysis confidence
 
@@ -112,6 +150,7 @@ descriptive `Display` message; its variants distinguish unreadable HDF5 files
 (`DataDirNotFound`), inconsistent dimensions (`DimensionMismatch`), invalid
 arguments (`InvalidArgument`), and a singular Kulfan fit (`SingularFit`).
 
-Analysis calls (`analyze`, `analyze_with_gradients`) are infallible and return
+Analysis calls (`analyze`, `analyze_with_gradients`, and their `_scalars`
+counterparts) are infallible and return
 their results directly, so once a model is constructed no further error
 handling is needed.

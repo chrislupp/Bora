@@ -84,8 +84,14 @@ reported as a `bora::Error` rather than a panic.
 
 Use `analyze()` for outputs only (`AeroOutput`), or `analyze_with_gradients()`
 to also get the derivative of every output with respect to all 23 inputs
-(`AeroResult`). Gradients are exact (forward-mode differentiation through the
+(`AeroResult`). Gradients are exact (algorithmic differentiation through the
 network), not finite differences. Analysis calls cannot fail.
+
+If you only need the scalar outputs (coefficients, transition locations, and
+confidence), use `analyze_scalars()` and `analyze_scalars_with_gradients()`.
+They return the same scalar values, and the gradient version is about 4-8x
+faster than `analyze_with_gradients()`. See
+[Scalar-only analysis](../guide/concepts.md#scalar-only-analysis).
 
 ### 5. Build and Run
 
