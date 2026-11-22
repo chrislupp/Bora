@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-19
+
 ### Added
 
 - Apache-2.0 license header with the public release statement (case number
@@ -74,3 +76,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation site: npm `overrides` pin patched transitive dependencies of Docusaurus —
   `serialize-javascript` ^7.0.5 (GHSA-5c6j-r48x-rmvq, GHSA-qj8w-gfj5-8c6v) and `uuid`
   ^11.1.1 (GHSA-w5hq-g745-h8pq); `npm audit` reports no vulnerabilities
+[Unreleased]: https://github.com/chrislupp/Bora/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/chrislupp/Bora/releases/tag/v0.1.0
