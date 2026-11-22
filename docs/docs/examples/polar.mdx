@@ -1,0 +1,117 @@
+---
+sidebar_position: 2
+title: "Polar sweep"
+description: "Sweep angle of attack at several Reynolds numbers to produce a lift curve and drag polar."
+---
+
+import PolarFigure from "@site/src/components/PolarFigure";
+
+# Polar sweep
+
+A polar is the most common thing to ask of an airfoil code: the same section
+at a range of angles of attack. With Bora it is a loop over one cheap
+function. `examples/polar.rs` sweeps the quickstart airfoil from −8° to 18°
+at three Reynolds numbers.
+
+```bash
+cargo run --release --example polar
+```
+
+<PolarFigure />
+
+The figure is drawn from the example's own output. Three things in it are
+worth noticing.
+
+**Every point exists.** XFoil typically stops converging somewhere past
+maximum lift, and a sweep comes back with holes. Here there are 105 points
+per curve and no gaps. Whether the points beyond stall should be believed is
+a separate question, which the confidence answers.
+
+**The curves are smooth.** There is no scatter from one angle to the next and
+no hysteresis: the result at 10° does not depend on whether the sweep arrived
+from 9° or from 11°.
+
+**The tangent is not fitted.** The line through the marked point has the slope
+returned by `analyze_scalars_with_gradients` at that one angle. It is tangent
+to a curve built from 105 independent evaluations.
+
+## The loop
+
+```rust title="examples/polar.rs (abridged)"
+use bora::{AeroInput, AeroScalarResult, ModelSize, NeuralFoil, input_index};
+
+fn main() -> bora::Result<()> {
+    let mut input = AeroInput::default();
+    input.kulfan.upper_weights = [0.24, 0.31, 0.25, 0.35, 0.24, 0.35, 0.28, 0.32];
+    input.kulfan.lower_weights = [-0.12, -0.05, -0.13, 0.02, -0.08, 0.06, 0.02, 0.06];
+    input.kulfan.leading_edge_weight = 0.02;
+    input.kulfan.te_thickness = 0.0025;
+    input.re = 1e6;
+
+    let model = NeuralFoil::new(ModelSize::XLarge)?;
+
+    for step in 0..=13 {
+        let alpha = -8.0 + 2.0 * step as f64;
+        let AeroScalarResult { output, gradient } =
+            model.analyze_scalars_with_gradients(&AeroInput { alpha, ..input });
+        println!(
+            "{alpha:>6.1}  {:>8.4}  {:>8.5}  {:>7.3}  {:>10.5}  {:>10.4}",
+            output.cl,
+            output.cd,
+            output.top_xtr,
+            gradient.cl[input_index::ALPHA],
+            output.analysis_confidence
+        );
+    }
+    Ok(())
+}
+```
+
+`AeroInput` is `Copy`, so `AeroInput { alpha, ..input }` makes a modified copy
+for each point without touching the original.
+
+## Output
+
+The example prints one table per Reynolds number. This is the one at 10⁶:
+
+```text
+Polar at Re = 1.0e6, n_crit = 9.0 (xlarge model)
+
+ alpha        CL        CD        CM      L/D  xtr_top  xtr_bot  dCL/dalpha  confidence
+  -8.0   -0.2801   0.01226   -0.1289    -22.9    0.890    0.020     0.10720      0.9731
+  -6.0   -0.0578   0.00970   -0.1294     -6.0    0.838    0.023     0.11374      0.9759
+  -4.0    0.1709   0.00822   -0.1300     20.8    0.771    0.047     0.11413      0.9681
+  -2.0    0.3985   0.00676   -0.1315     59.0    0.700    0.331     0.11360      0.9562
+   0.0    0.6267   0.00675   -0.1322     92.8    0.627    0.536     0.11290      0.9611
+   2.0    0.8483   0.00721   -0.1319    117.7    0.538    0.703     0.10680      0.9656
+   4.0    1.0540   0.00776   -0.1288    135.9    0.441    1.000     0.10295      0.9692
+   6.0    1.2611   0.00959   -0.1264    131.6    0.341    1.000     0.10024      0.9790
+   8.0    1.4444   0.01209   -0.1201    119.4    0.251    1.000     0.08099      0.9812
+  10.0    1.5886   0.01574   -0.1087    100.9    0.171    1.000     0.06340      0.9818
+  12.0    1.6905   0.02223   -0.0939     76.1    0.098    1.000     0.03889      0.9828
+  14.0    1.7537   0.03345   -0.0807     52.4    0.051    1.000     0.02262      0.9826
+  16.0    1.7753   0.05118   -0.0721     34.7    0.030    1.000    -0.00046      0.9811
+  18.0    1.7521   0.07765   -0.0702     22.6    0.020    1.000    -0.02324      0.9832
+```
+
+The lift-curve slope holds near 0.11 per degree through the linear range,
+falls away beyond 6° and changes sign at 16°, which locates maximum lift
+without a search. Upper-surface transition moves forward from 89% chord to
+the leading edge as the angle rises, and from 4° upward the lower surface is
+laminar to the trailing edge.
+
+At a Reynolds number of 2 × 10⁵ the first row of the table tells a different
+story: at −8° the confidence is 0.36 and the drag coefficient 0.08. The model
+is reporting a largely separated flow and warning that it should not be
+trusted there.
+
+## Plotting
+
+`--json` writes the outline and all three sweeps as JSON for a plotting
+program:
+
+```bash
+cargo run --release --example polar -- --json > polar.json
+```
+
+The figures in this documentation are drawn from that file.

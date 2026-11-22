@@ -55,8 +55,11 @@ Add Bora to your project with:
 bora = { git = "https://github.com/chrislupp/Bora" }
 ```
 
-See `examples/example.rs` for basic usage and `examples/optimize_airfoil.rs`
-for a full gradient-based drag minimization at fixed lift.
+See `examples/example.rs` for basic usage, `examples/polar.rs` for a lift curve
+and drag polar, and `examples/optimize_airfoil.rs` for a full gradient-based
+drag minimization at fixed lift. The
+[documentation](https://chrislupp.github.io/Bora/) covers the model, its
+validity limits, and the API.
 
 ## Requirements
 
@@ -78,6 +81,7 @@ cargo test --all-features
 
 # Run examples
 cargo run --release --example example
+cargo run --release --example polar
 cargo run --release --example optimize_airfoil
 
 # API documentation
@@ -111,7 +115,7 @@ Options: `model_size` (str, default `"xlarge"`), `data_directory` (str), and
 
 ## Network Weights
 
-The neural network weights live in `data/` as HDF5 files converted from the
+NeuralFoil's network weights live in `data/` as HDF5 files converted from the
 upstream NeuralFoil `.npz` files (see `scripts/convert_weights.py`). At
 runtime the weight directory is resolved in this order:
 

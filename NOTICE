@@ -14,6 +14,10 @@ following MIT-licensed projects, whose license notices are reproduced below.
 - AeroSandbox (https://github.com/peterdsharpe/AeroSandbox): the Kulfan (CST)
   airfoil parameterization, coordinate generation, and parameter fitting.
 
+The documentation site (docs/) bundles the B612, Michroma and Source Code Pro
+typefaces under the SIL Open Font License 1.1; their license texts are
+in docs/static/fonts/.
+
 --------------------------------------------------------------------------------
 NeuralFoil
 --------------------------------------------------------------------------------

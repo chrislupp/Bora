@@ -1,0 +1,142 @@
+---
+sidebar_position: 3
+title: "Airfoil optimization"
+description: "Minimize drag at fixed lift with Bora's analytic gradients, using the analysis confidence as a constraint."
+---
+
+import OptimizedAirfoil from "@site/src/components/OptimizedAirfoil";
+
+# Airfoil optimization
+
+`examples/optimize_airfoil.rs` reshapes a NACA 0012 to minimize drag at a
+lift coefficient of 0.8 and a Reynolds number of 10⁶. It is a small, complete
+gradient-based design loop with no dependencies beyond Bora.
+
+```bash
+cargo run --release --example optimize_airfoil
+```
+
+## The problem
+
+| Role | Quantity |
+|------|----------|
+| Minimize | $C_D$ |
+| Subject to | $C_L = 0.8$ |
+| | analysis confidence ≥ 0.95 |
+| Design variables | 16 surface weights, the leading-edge weight, and the angle of attack |
+| Fixed | Reynolds number 10⁶, trailing-edge thickness, free transition |
+
+Both constraints are handled as quadratic penalties, so the problem becomes
+the unconstrained minimization of
+
+$$
+J = C_D + w_L\,(C_L - 0.8)^2 + w_c\,\max(0,\; 0.95 - c)^2 ,
+$$
+
+with $c$ the analysis confidence, $w_L = 1$ and $w_c = 0.1$. The 18 design
+variables are updated with Adam, a first-order method that needs only $J$ and
+its gradient.
+
+This is a deliberately simple formulation. The case study in the NeuralFoil
+paper, the airfoil of the Daedalus human-powered aircraft, is a better model
+for real work: it minimizes drag averaged over six lift coefficients and
+constrains the pitching moment, the thickness at two spar stations and the
+trailing-edge angle ([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
+
+## Objective and gradient
+
+Each iteration makes one call. The objective uses only scalar outputs, so the
+reverse-mode scalar path is enough, and for NeuralFoil's xlarge network it is about
+4.5 times faster than `analyze_with_gradients`.
+
+```rust title="examples/optimize_airfoil.rs (abridged)"
+let result = model.analyze_scalars_with_gradients(&input);
+let aero = result.output;
+
+let cl_error = aero.cl - CL_TARGET;
+let confidence_deficit = (CONFIDENCE_FLOOR - aero.analysis_confidence).max(0.0);
+
+let value = aero.cd
+    + CL_PENALTY_WEIGHT * cl_error * cl_error
+    + CONFIDENCE_PENALTY_WEIGHT * confidence_deficit * confidence_deficit;
+
+let g = &result.gradient;
+let gradient: [f64; NUM_DESIGN_VARS] = std::array::from_fn(|i| {
+    // Surface and leading-edge weights map one to one; the last entry is alpha.
+    let k = design_to_input_index(i);
+    g.cd[k] + 2.0 * CL_PENALTY_WEIGHT * cl_error * g.cl[k]
+        - 2.0 * CONFIDENCE_PENALTY_WEIGHT * confidence_deficit * g.analysis_confidence[k]
+});
+```
+
+The gradient of $J$ is the chain rule applied to the three terms, each a row
+of the returned gradient. Nothing is differenced.
+
+## Result
+
+```text
+Minimizing CD at CL = 0.80, Re = 1.0e6 (xlarge model)
+
+  iter   objective         CL         CD       L/D   confidence
+     1    0.123803    0.45873    0.00734     62.50       0.9635
+    50    0.006915    0.78887    0.00679    116.17       0.9562
+   100    0.006122    0.79903    0.00612    130.54       0.9685
+   150    0.005748    0.79911    0.00575    139.05       0.9723
+   200    0.005572    0.79914    0.00557    143.43       0.9714
+   250    0.005477    0.79970    0.00548    146.00       0.9687
+   300    0.005411    0.79971    0.00541    147.80       0.9665
+   350    0.005349    0.79970    0.00535    149.52       0.9633
+   400    0.005289    0.79968    0.00529    151.21       0.9591
+   450    0.005230    0.79965    0.00523    152.89       0.9537
+   500    0.005174    0.79959    0.00517    154.56       0.9473
+
+Optimized airfoil (Kulfan parameters):
+  upper_weights = {0.097579, 0.146209, 0.215940, 0.161252, 0.254478, 0.300737, 0.213287, 0.125876}
+  lower_weights = {-0.058255, 0.027221, -0.067101, -0.050751, -0.087094, -0.033425, -0.016107, -0.032550}
+  leading_edge_weight = 0.191559
+  alpha = 3.997 deg
+
+Wrote optimized_airfoil.dat
+```
+
+<OptimizedAirfoil />
+
+The lift target is met within the first 100 iterations. From there the drag
+at that lift falls from 0.0061 to 0.0052, and the lift-to-drag ratio ends at
+155. The whole run is 500 gradient evaluations, about 36 ms of analysis time
+on an Apple M1 Pro.
+
+The confidence drifts down from 0.97 to just under the 0.95 floor in the last
+iterations: the optimizer is leaning on the constraint, and the penalty is
+holding it there. That is the constraint doing its job. It is also a signal
+to stop, or to confirm the design with XFoil, rather than to keep iterating.
+
+## What to take from it
+
+**Penalize or constrain the confidence.** It keeps the search where the model
+is trustworthy and, as a side effect, keeps the shape reasonable. See
+[Analysis confidence](../guide/confidence.md).
+
+**Make the angle of attack a design variable.** Letting the optimizer trim
+the angle alongside the shape makes a lift target easy to hold.
+
+**Use a real optimizer for real problems.** Adam with penalties is enough to
+show the gradients working. A constrained method such as SQP or an
+interior-point code, fed the same gradients, will converge in far fewer
+iterations and satisfy constraints exactly. The
+[Philote discipline](../guide/philote.md) connects Bora to frameworks that
+provide them.
+
+**Regularize the shape on harder problems.** The NeuralFoil paper recommends
+two constraints as good practice: positive thickness everywhere, and a limit
+on the roughness of the shape measured by the second differences of
+neighboring Kulfan weights, held to a few times its value for the starting
+airfoil ([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
+Neither was needed here.
+
+**Confirm the result.** The optimized section is a prediction of a surrogate
+of XFoil. Check it with XFoil or a higher-fidelity method before building
+anything.
+
+The example writes the final shape to `optimized_airfoil.dat` in Selig format
+through `generate_kulfan_coordinates`.
