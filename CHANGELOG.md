@@ -26,6 +26,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
 - README citation section with BibTeX entries for the NeuralFoil paper and Peter Sharpe's
   PhD thesis
+- `NeuralFoil::analyze_with_tangent` and `AeroTangent`: forward-mode Jacobian-vector product
+  giving the directional derivative of every output (scalars and boundary layer arrays) along
+  one direction in the 23-entry input space. On Apple M1 Pro it costs 1.8-2.0x `analyze`
+  versus 11-13x for `analyze_with_gradients`; `output` is bitwise identical to `analyze`.
+  Backed by the single-direction kernel `Network::evaluate_with_tangent` (runtime AVX2+FMA
+  dispatch on x86-64 like the other passes)
+- Batch analysis: `NeuralFoil::analyze_batch(&inputs) -> Vec<AeroOutput>` and the
+  allocation-free `NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`, plus
+  the scalar-only `NeuralFoil::analyze_scalars_batch` / `analyze_scalars_batch_into` returning
+  `AeroScalars`. For a 64-point batch on Apple M1 Pro they are 1.9x (xxsmall) to 2.4x
+  (xxxlarge) faster per point than a loop over `analyze`, and 2.1x to 2.5x faster than a loop
+  over `analyze_scalars`; results match the single-point calls to within a few ulps
+- Batched network kernel `Network::evaluate_batch` (feature-major `input_size() x n_points`
+  in, `output_size() x n_points` out) with reusable `BatchWorkspace` scratch space: blocks of
+  `BATCH_BLOCK_SIZE` (8) points are pushed through each weight matrix four output rows at a
+  time with a vectorizable swish activation (runtime AVX2+FMA dispatch on x86-64), 2.7x
+  (xxsmall) to 3.5x (xxxlarge) faster per point than `Network::evaluate`
 - `polar` example (`examples/polar.rs`): sweeps the angle of attack at three Reynolds numbers
   and prints lift, drag, moment, transition locations, the analytic lift-curve slope and the
   analysis confidence; `--json` writes the outline and sweeps for plotting

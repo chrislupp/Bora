@@ -96,6 +96,47 @@ gradients from the two calls agree to rounding, not bitwise, because the same
 sums are accumulated in a different order; across the test suite the
 difference stays below 10⁻¹³ of each gradient's largest entry.
 
+## Directional derivatives
+
+When you need the derivative along one direction only, for example
+$\partial C_L / \partial \alpha$ inside a Newton iteration on lift,
+`analyze_with_tangent(&input, &direction)` is far cheaper than either gradient
+call. `direction` is a `Gradient` in the input space of the table above, and
+the returned `AeroTangent` holds `output`, bitwise identical to `analyze`, and
+`tangent`, an `AeroOutput` whose every field is the directional derivative of
+the matching output:
+
+$$
+\texttt{tangent.}X = \sum_k \texttt{gradient.}X[k]\;\texttt{direction}[k] .
+$$
+
+```rust
+let mut direction = [0.0; bora::NUM_INPUTS];
+direction[idx::ALPHA] = 1.0;
+
+let result = model.analyze_with_tangent(&input, &direction);
+let (cl, dcl_dalpha) = (result.output.cl, result.tangent.cl);
+```
+
+It carries one direction through the network alongside the values, forward
+mode with a single seed, and it covers the boundary-layer outputs too.
+
+<TableCaption>
+Time per call in microseconds (Apple M1 Pro, one thread), with the cost
+relative to `analyze` in parentheses.
+</TableCaption>
+
+| `ModelSize` | `analyze` | `analyze_with_tangent` | `analyze_with_gradients` |
+|-------------|----------:|-----------------------:|-------------------------:|
+| `XXSmall` | 4.9 | 9.0 (1.8×) | 56 (11×) |
+| `Medium` | 9.2 | 17.6 (1.9×) | 104 (11×) |
+| `XLarge` | 27 | 54 (2.0×) | 321 (12×) |
+| `XXXLarge` | 358 | 701 (2.0×) | 4,470 (12×) |
+
+The tangent agrees with the contracted result of `analyze_with_gradients` to
+rounding. To differentiate the six scalar outputs with respect to all inputs,
+one `analyze_scalars_with_gradients` call is cheaper than 23 tangents.
+
 ## Transition locations
 
 The two transition outputs are clipped to the interval from 0 to 1. Where the
@@ -106,7 +147,7 @@ should expect a flat region there.
 
 ## How the gradients are verified
 
-Three independent checks run in the test suite:
+Independent checks run in the test suite:
 
 1. Against Jacobians of Python NeuralFoil computed with CasADi, to a relative
    tolerance of 10⁻⁶ (`tests/reference_gradients.rs`).
@@ -114,6 +155,8 @@ Three independent checks run in the test suite:
    (`tests/gradients.rs`).
 3. The reverse-mode scalar gradients against the forward-mode ones
    (`tests/scalars.rs`).
+4. The tangents against the full gradients contracted with the same direction
+   (`tests/tangent.rs`).
 
 ## Using the gradients in an optimizer
 

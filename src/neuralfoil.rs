@@ -37,9 +37,9 @@ use std::path::{Path, PathBuf};
 use crate::input_index as idx;
 use crate::{
     AeroGradients, AeroInput, AeroOutput, AeroResult, AeroScalarGradients, AeroScalarResult,
-    AeroScalars, BoundaryLayerData, BoundaryLayerGradients, Error, Gradient, InputDistribution,
-    ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE, NUM_INPUTS, NUM_LATENT_INPUTS,
-    NUM_LATENT_OUTPUTS, Network, Result,
+    AeroScalars, AeroTangent, BATCH_BLOCK_SIZE, BatchWorkspace, BoundaryLayerData,
+    BoundaryLayerGradients, Error, Gradient, InputDistribution, ModelSize, NUM_BL_POINTS,
+    NUM_CST_WEIGHTS_PER_SIDE, NUM_INPUTS, NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, Network, Result,
 };
 
 const N: usize = NUM_BL_POINTS;
@@ -124,6 +124,15 @@ fn seed_jacobian_entries(input: &AeroInput, mut set: impl FnMut(usize, usize, f6
     set(22, idx::N_CRIT, 1.0 / 4.5);
     set(23, idx::XTR_UPPER, 1.0);
     set(24, idx::XTR_LOWER, 1.0);
+}
+
+/// Builds the latent input tangent d(latent input)/d(user inputs) * direction,
+/// i.e. the product of the seed Jacobian with `direction`, without forming
+/// the matrix.
+fn build_latent_tangent(input: &AeroInput, direction: &Gradient) -> [f64; NUM_LATENT_INPUTS] {
+    let mut dx = [0.0; NUM_LATENT_INPUTS];
+    seed_jacobian_entries(input, |row, col, value| dx[row] += value * direction[col]);
+    dx
 }
 
 /// Applies the alpha-symmetry flip to a latent input vector.
@@ -300,6 +309,55 @@ fn decode_outputs(
         gradients.map(|g| &mut g.lower),
     );
     output
+}
+
+/// Propagates the fused latent output tangent `dy_fused` through the decoding
+/// of [`decode_outputs`], given the decoded `output` at the same point. Uses
+/// the same derivative formulas as the gradient path of [`decode_outputs`],
+/// contracted with one direction (`d_re` is the direction's Re component, for
+/// theta's direct dependence on Re).
+fn decode_tangent(
+    y_fused: &[f64],
+    dy_fused: &[f64],
+    input: &AeroInput,
+    d_re: f64,
+    output: &AeroOutput,
+) -> AeroOutput {
+    let conf = output.analysis_confidence;
+    // Clipped transition locations: zero derivative where the clip is active.
+    let clip_active = |v: f64| if v > 0.0 && v < 1.0 { 1.0 } else { 0.0 };
+    let mut tangent = AeroOutput {
+        analysis_confidence: conf * (1.0 - conf) * dy_fused[0],
+        cl: 0.5 * dy_fused[1],
+        cd: 2.0 * output.cd * dy_fused[2],
+        cm: 1.0 / 20.0 * dy_fused[3],
+        top_xtr: clip_active(y_fused[4]) * dy_fused[4],
+        bot_xtr: clip_active(y_fused[5]) * dy_fused[5],
+        ..AeroOutput::default()
+    };
+
+    let decode_surface = |offset: usize, bl: &BoundaryLayerData, bl_dot: &mut BoundaryLayerData| {
+        for i in 0..N {
+            let i_theta = offset + i;
+            let i_h = offset + N + i;
+            let i_ue = offset + 2 * N + i;
+
+            let ue = y_fused[i_ue];
+            let pow_term = 10.0_f64.powf(y_fused[i_theta]);
+            let theta = bl.theta[i];
+            let dtheta_dlatent = LN_10 * pow_term / (ue.abs() * input.re);
+            let dtheta_due = -theta / ue;
+            // theta also depends on Re directly through the decoding.
+            bl_dot.theta[i] = dtheta_dlatent * dy_fused[i_theta]
+                + dtheta_due * dy_fused[i_ue]
+                + (-theta / input.re) * d_re;
+            bl_dot.h[i] = bl.h[i] * dy_fused[i_h];
+            bl_dot.ue_over_vinf[i] = dy_fused[i_ue];
+        }
+    };
+    decode_surface(6, &output.upper, &mut tangent.upper);
+    decode_surface(6 + 3 * N, &output.lower, &mut tangent.lower);
+    tangent
 }
 
 /// Resolves the weight directory: explicit argument, then `BORA_DATA_DIR`,
@@ -571,6 +629,234 @@ impl NeuralFoil {
         let output = decode_scalars(&y_fused);
         let gradient = decode_scalar_gradients(&y_fused, &output, |i| &jy_fused[i]);
         AeroScalarResult { output, gradient }
+    }
+
+    /// Analyzes an airfoil and computes the directional derivative of every
+    /// output along `direction`, a vector in the same [`NUM_INPUTS`]-entry
+    /// user-input space as [`Gradient`] (ordering given by
+    /// [`input_index`](crate::input_index)).
+    ///
+    /// This is a forward-mode Jacobian-vector product: for every output X,
+    /// `tangent.X == sum_k gradient.X[k] * direction[k]`, where `gradient` is
+    /// what [`analyze_with_gradients`](Self::analyze_with_gradients) returns
+    /// (up to floating-point summation order). A unit vector at
+    /// [`input_index::ALPHA`](crate::input_index::ALPHA) gives d/d(alpha) of
+    /// every output. It propagates a single direction instead of all
+    /// [`NUM_INPUTS`], so it costs about two [`analyze`](Self::analyze) calls
+    /// (1.8-2.0x on Apple M1 Pro) versus 11-13 for `analyze_with_gradients`.
+    /// `output` is
+    /// bitwise identical to [`analyze`](Self::analyze).
+    pub fn analyze_with_tangent(&self, input: &AeroInput, direction: &Gradient) -> AeroTangent {
+        let x = build_latent_input(input);
+        let dx = build_latent_tangent(input, direction);
+        // The flip is linear, so it maps tangents like values.
+        let x_flipped = flip_latent_input(&x);
+        let dx_flipped = flip_latent_input(&dx);
+
+        // Two value+tangent passes. Sharing one traversal of the weights
+        // between them (two `dot2` calls per weight row) measured 1.1-1.2x slower
+        // on Apple M1 Pro for every model size, and a single 4-vector dot
+        // (64 accumulators, which spill) ~3x slower.
+        let mut y = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy = [0.0; NUM_LATENT_OUTPUTS];
+        let mut y_flipped = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy_flipped = [0.0; NUM_LATENT_OUTPUTS];
+        self.network.evaluate_with_tangent(&x, &dx, &mut y, &mut dy);
+        self.network.evaluate_with_tangent(
+            &x_flipped,
+            &dx_flipped,
+            &mut y_flipped,
+            &mut dy_flipped,
+        );
+
+        // Analysis-confidence correction and its directional derivative, for
+        // both passes.
+        let apply_mahalanobis =
+            |x_pass: &[f64], dx_pass: &[f64], y_pass: &mut [f64], dy_pass: &mut [f64]| {
+                let mut grad_latent = [0.0; NUM_LATENT_INPUTS];
+                let distance = self
+                    .distribution
+                    .squared_mahalanobis_with_gradient(x_pass, &mut grad_latent);
+                y_pass[0] -= distance / CONFIDENCE_SCALE;
+                let dot: f64 = grad_latent.iter().zip(dx_pass).map(|(g, d)| g * d).sum();
+                dy_pass[0] -= dot / CONFIDENCE_SCALE;
+            };
+        apply_mahalanobis(&x, &dx, &mut y, &mut dy);
+        apply_mahalanobis(&x_flipped, &dx_flipped, &mut y_flipped, &mut dy_flipped);
+
+        // Un-flip the outputs of the flipped evaluation, then fuse by averaging.
+        let mut y_fused = [0.0; NUM_LATENT_OUTPUTS];
+        let mut dy_fused = [0.0; NUM_LATENT_OUTPUTS];
+        apply_output_unflip(|dest, src, sign| {
+            y_fused[dest] = 0.5 * (y[dest] + sign * y_flipped[src]);
+            dy_fused[dest] = 0.5 * (dy[dest] + sign * dy_flipped[src]);
+        });
+
+        let output = decode_outputs(&y_fused, input, None, None);
+        let tangent = decode_tangent(&y_fused, &dy_fused, input, direction[idx::RE], &output);
+        AeroTangent { output, tangent }
+    }
+
+    /// Analyzes a batch of operating points (and/or airfoils) at once.
+    ///
+    /// Returns one output per input, in order: `analyze_batch(inputs)[i]` equals
+    /// [`analyze(&inputs[i])`](Self::analyze) to within a few ulps of the
+    /// network outputs (relative differences around 1e-14), but not bit for
+    /// bit: the batched network kernel ([`Network::evaluate_batch`]) sums in a
+    /// different order and evaluates the activation function with a
+    /// vectorizable `exp`. A point's result does not depend on its position in
+    /// the batch or on the other points beyond that rounding level.
+    ///
+    /// Points are processed four at a time (each with its flipped image, so
+    /// one network block). For a 64-point batch this is 1.9x (xxsmall) to
+    /// 2.4x (xxxlarge) faster per point than calling [`analyze`](Self::analyze)
+    /// in a loop on Apple M1 Pro; a final partial chunk gains less, and a
+    /// single point costs about one `analyze` call. Any length works,
+    /// including zero.
+    ///
+    /// Allocates the returned vector and a scratch workspace; use
+    /// [`analyze_batch_into`](Self::analyze_batch_into) to reuse both across
+    /// calls.
+    pub fn analyze_batch(&self, inputs: &[AeroInput]) -> Vec<AeroOutput> {
+        let mut outputs = vec![AeroOutput::default(); inputs.len()];
+        self.analyze_batch_into(inputs, &mut outputs, &mut BatchWorkspace::default());
+        outputs
+    }
+
+    /// Like [`analyze_batch`](Self::analyze_batch), but writes the results to
+    /// `outputs` (`outputs[i]` for `inputs[i]`) and takes its scratch space from
+    /// `workspace`, so repeated calls with a kept workspace do not allocate.
+    ///
+    /// # Panics
+    ///
+    /// If `outputs` and `inputs` differ in length.
+    pub fn analyze_batch_into(
+        &self,
+        inputs: &[AeroInput],
+        outputs: &mut [AeroOutput],
+        workspace: &mut BatchWorkspace,
+    ) {
+        self.batch_into(
+            inputs,
+            outputs,
+            workspace,
+            NUM_LATENT_OUTPUTS,
+            |y_fused, input| decode_outputs(y_fused, input, None, None),
+        );
+    }
+
+    /// Analyzes a batch of operating points (and/or airfoils) at once,
+    /// computing only the scalar outputs: the batched counterpart of
+    /// [`analyze_scalars`](Self::analyze_scalars), which skips the 192
+    /// boundary layer rows of the network's output layer.
+    ///
+    /// `analyze_scalars_batch(inputs)[i]` equals
+    /// [`analyze_scalars(&inputs[i])`](Self::analyze_scalars) to within a few
+    /// ulps (see [`analyze_batch`](Self::analyze_batch) for why it is not bit
+    /// for bit), and is bitwise identical to the scalar fields of
+    /// `analyze_batch(inputs)[i]`. For a 64-point batch it is 2.1x
+    /// (xxsmall) to 2.5x (xxlarge, xxxlarge) faster per point than a loop over
+    /// `analyze_scalars` on Apple M1 Pro.
+    ///
+    /// Allocates the returned vector and a scratch workspace; use
+    /// [`analyze_scalars_batch_into`](Self::analyze_scalars_batch_into) to
+    /// reuse both across calls.
+    pub fn analyze_scalars_batch(&self, inputs: &[AeroInput]) -> Vec<AeroScalars> {
+        let mut outputs = vec![AeroScalars::default(); inputs.len()];
+        self.analyze_scalars_batch_into(inputs, &mut outputs, &mut BatchWorkspace::default());
+        outputs
+    }
+
+    /// Like [`analyze_scalars_batch`](Self::analyze_scalars_batch), but writes
+    /// the results to `outputs` (`outputs[i]` for `inputs[i]`) and takes its
+    /// scratch space from `workspace`, so repeated calls with a kept workspace
+    /// do not allocate.
+    ///
+    /// # Panics
+    ///
+    /// If `outputs` and `inputs` differ in length.
+    pub fn analyze_scalars_batch_into(
+        &self,
+        inputs: &[AeroInput],
+        outputs: &mut [AeroScalars],
+        workspace: &mut BatchWorkspace,
+    ) {
+        self.batch_into(inputs, outputs, workspace, NUM_SCALARS, |y_fused, _| {
+            decode_scalars(y_fused)
+        });
+    }
+
+    /// Shared body of the batched analysis calls: evaluates the first `n_out`
+    /// latent outputs (all of them, or the [`NUM_SCALARS`] scalars) of every
+    /// input and its alpha-flipped image with the batched kernel, applies the
+    /// confidence correction, fuses, and decodes each point with `decode`.
+    fn batch_into<T>(
+        &self,
+        inputs: &[AeroInput],
+        outputs: &mut [T],
+        workspace: &mut BatchWorkspace,
+        n_out: usize,
+        decode: impl Fn(&[f64], &AeroInput) -> T,
+    ) {
+        // Each point needs two network passes (the input and its alpha-flipped
+        // image), evaluated as two columns of the same batch: a chunk of
+        // `CHUNK` points fills one `BATCH_BLOCK_SIZE`-column block, with the
+        // points in columns 0..m and their flipped images in columns m..2m.
+        const CHUNK: usize = BATCH_BLOCK_SIZE / 2;
+        const N_IN: usize = NUM_LATENT_INPUTS;
+        const N_OUT: usize = NUM_LATENT_OUTPUTS;
+        assert_eq!(
+            inputs.len(),
+            outputs.len(),
+            "batched analysis: inputs and outputs differ in length"
+        );
+        let unflip: fn(&mut dyn FnMut(usize, usize, f64)) = if n_out == NUM_SCALARS {
+            |apply| apply_scalar_output_unflip(apply)
+        } else {
+            |apply| apply_output_unflip(apply)
+        };
+
+        let mut x_block = [0.0; N_IN * 2 * CHUNK];
+        let mut y_block = [0.0; N_OUT * 2 * CHUNK];
+        let mut corrections = [0.0; 2 * CHUNK];
+        for (inputs, outputs) in inputs.chunks(CHUNK).zip(outputs.chunks_mut(CHUNK)) {
+            let m = inputs.len();
+            let n_cols = 2 * m;
+
+            for (k, input) in inputs.iter().enumerate() {
+                let x = build_latent_input(input);
+                let x_flipped = flip_latent_input(&x);
+                for j in 0..N_IN {
+                    x_block[j * n_cols + k] = x[j];
+                    x_block[j * n_cols + m + k] = x_flipped[j];
+                }
+                // Analysis-confidence correction (see `analyze`).
+                let distance = |x: &[f64]| self.distribution.squared_mahalanobis_unbuffered(x);
+                corrections[k] = distance(&x) / CONFIDENCE_SCALE;
+                corrections[m + k] = distance(&x_flipped) / CONFIDENCE_SCALE;
+            }
+
+            self.network
+                .evaluate_first_batch(&x_block, n_out, &mut y_block, n_cols, workspace);
+
+            for (k, (input, output)) in inputs.iter().zip(outputs.iter_mut()).enumerate() {
+                let y = |i: usize| y_block[i * n_cols + k];
+                let y_flipped = |i: usize| y_block[i * n_cols + m + k];
+                let mut y_fused = [0.0; N_OUT];
+                unflip(&mut |dest, src, sign| {
+                    let mut value = y(dest);
+                    let mut flipped = y_flipped(src);
+                    if dest == 0 {
+                        value -= corrections[k];
+                    }
+                    if src == 0 {
+                        flipped -= corrections[m + k];
+                    }
+                    y_fused[dest] = 0.5 * (value + sign * flipped);
+                });
+                *output = decode(&y_fused[..n_out], input);
+            }
+        }
     }
 
     /// Returns the model size this instance was constructed with (or

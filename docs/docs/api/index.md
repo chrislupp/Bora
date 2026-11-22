@@ -30,10 +30,17 @@ and is safe to call from several threads.
 | `analyze_with_gradients` | `(&AeroInput) -> AeroResult` | All outputs and their gradients, forward mode |
 | `analyze_scalars` | `(&AeroInput) -> AeroScalars` | The six scalar outputs |
 | `analyze_scalars_with_gradients` | `(&AeroInput) -> AeroScalarResult` | The six scalars and their gradients, reverse mode |
+| `analyze_with_tangent` | `(&AeroInput, &Gradient) -> AeroTangent` | All outputs and their derivative along one direction |
+| `analyze_batch` | `(&[AeroInput]) -> Vec<AeroOutput>` | Many inputs at once, all outputs |
+| `analyze_batch_into` | `(&[AeroInput], &mut [AeroOutput], &mut BatchWorkspace)` | The same, without allocating |
+| `analyze_scalars_batch` | `(&[AeroInput]) -> Vec<AeroScalars>` | Many inputs at once, the six scalars |
+| `analyze_scalars_batch_into` | `(&[AeroInput], &mut [AeroScalars], &mut BatchWorkspace)` | The same, without allocating |
 | `model_size` | `() -> ModelSize` | The size the model was constructed with |
 
-See [Inputs and outputs](../guide/analysis.md), [Gradients](../guide/gradients.md)
-and [Weights and deployment](../guide/deployment.md).
+The `_into` forms panic if the output slice and the input slice differ in
+length. See [Inputs and outputs](../guide/analysis.md),
+[Gradients](../guide/gradients.md) and
+[Weights and deployment](../guide/deployment.md).
 
 ### `ModelSize`
 
@@ -57,6 +64,8 @@ and [Weights and deployment](../guide/deployment.md).
 | `AeroScalarGradients` | A `Gradient` for each of the six scalars |
 | `AeroResult` | `output: AeroOutput`, `gradient: AeroGradients` |
 | `AeroScalarResult` | `output: AeroScalars`, `gradient: AeroScalarGradients` |
+| `AeroTangent` | `output: AeroOutput`, `tangent: AeroOutput`, the directional derivative of every field |
+| `BatchWorkspace` | Reusable scratch space for the batched calls; grows on first use |
 | `Point2` | `[f64; 2]`, an airfoil coordinate |
 
 The `input_index` module names the entries of a `Gradient`: `UPPER_WEIGHTS`,
@@ -73,6 +82,7 @@ eight-entry blocks.
 | `NUM_BL_POINTS` | 32 | Boundary-layer stations per surface |
 | `NUM_LATENT_INPUTS` | 25 | Network input dimension |
 | `NUM_LATENT_OUTPUTS` | 198 | Network output dimension |
+| `BATCH_BLOCK_SIZE` | 8 | Network evaluations the batched kernel processes together |
 
 ## Utilities
 
@@ -108,6 +118,8 @@ A fully connected network with Swish activations.
 | `evaluate(x, y)` | Outputs for one input |
 | `evaluate_pair([x0, x1], [y0, y1])` | Two inputs in one pass over the weights; bitwise identical to two `evaluate` calls |
 | `evaluate_with_jacobian(x, jx, n_seed, y, jy)` | Outputs with a forward-mode Jacobian for `n_seed` seed directions |
+| `evaluate_with_tangent(x, dx, y, dy)` | Outputs with the tangent along one direction |
+| `evaluate_batch(x, y, n_points, workspace)` | Many inputs at once; `x` is `input_size()` by `n_points` and `y` is `output_size()` by `n_points`, row-major with one column per point |
 | `evaluate_first(x, n, y)` | Only the first `n` outputs |
 | `evaluate_first_with_gradients(x, n, y, grad)` | The first `n` outputs and their reverse-mode gradients, row-major `n` by `input_size()` |
 | `input_size()`, `output_size()`, `layers()` | Dimensions and the `Layer` list |

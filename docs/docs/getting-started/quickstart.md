@@ -86,7 +86,7 @@ choice; [Choosing a network size](../guide/model-sizes.md) has the numbers.
 
 ### Analyze
 
-There are four analysis calls. All of them are infallible.
+There are four main analysis calls. All of them are infallible.
 
 | Call | Returns | Gradients |
 |------|---------|-----------|
@@ -99,6 +99,13 @@ The six scalar outputs are `cl`, `cd`, `cm`, `top_xtr`, `bot_xtr` and
 `analysis_confidence`. If those are all you need, as in most optimization
 problems, the scalar calls return identical values and the gradient version is
 four to eight times faster. See [Gradients](../guide/gradients.md).
+
+Two more forms cover other needs: `analyze_with_tangent` returns the
+derivative of every output along one input direction at about twice the cost
+of `analyze` (see [Gradients](../guide/gradients.md#directional-derivatives)),
+and `analyze_batch` and `analyze_scalars_batch` analyze many inputs at once,
+about twice as fast per input as a loop (see
+[Many inputs at once](../guide/analysis.md#many-inputs-at-once)).
 
 ## Check the confidence
 

@@ -38,7 +38,10 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use bora::{AeroInput, ModelSize, NUM_INPUTS, NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, NeuralFoil};
+use bora::{
+    AeroInput, AeroOutput, AeroScalars, BatchWorkspace, ModelSize, NUM_INPUTS, NUM_LATENT_INPUTS,
+    NUM_LATENT_OUTPUTS, NeuralFoil, input_index,
+};
 
 /// Minimum wall time of one timed batch, in seconds.
 const MIN_BATCH_SECONDS: f64 = 0.05;
@@ -46,6 +49,8 @@ const MIN_BATCH_SECONDS: f64 = 0.05;
 const REPETITIONS: usize = 7;
 /// Number of scalar network outputs (confidence, CL, CD, CM, transitions).
 const SCALARS: usize = 6;
+/// Points per call of the batched calls; their times are reported per point.
+const BATCH: usize = 64;
 
 /// Returns the best-of-`REPETITIONS` time per call of `f`, in microseconds.
 /// The batch size doubles until a batch takes at least `MIN_BATCH_SECONDS`.
@@ -111,6 +116,31 @@ fn main() {
 
     let mut grad = vec![0.0; SCALARS * NUM_LATENT_INPUTS];
 
+    // Tangent direction (d/d alpha) and its latent image for the network pass.
+    let mut direction = [0.0; NUM_INPUTS];
+    direction[input_index::ALPHA] = 1.0;
+    let dx: Vec<f64> = (0..NUM_LATENT_INPUTS)
+        .map(|i| 0.05 * ((i * 5 % 7) as f64 - 3.0))
+        .collect();
+    let mut dy = vec![0.0; NUM_LATENT_OUTPUTS];
+
+    // A sweep of operating points for the batched calls, and its feature-major
+    // latent image for the network pass.
+    let batch: Vec<AeroInput> = (0..BATCH)
+        .map(|i| AeroInput {
+            alpha: -5.0 + 15.0 * i as f64 / BATCH as f64,
+            ..input
+        })
+        .collect();
+    let mut batch_outputs = vec![AeroOutput::default(); BATCH];
+    let mut batch_scalars = vec![AeroScalars::default(); BATCH];
+    let mut workspace = BatchWorkspace::default();
+    let x_batch: Vec<f64> = (0..NUM_LATENT_INPUTS * BATCH)
+        .map(|i| x[i / BATCH] * (1.0 + 0.01 * (i % BATCH) as f64))
+        .collect();
+    let mut y_batch = vec![0.0; NUM_LATENT_OUTPUTS * BATCH];
+    let mut rows = Vec::new();
+
     println!(
         "{:<9} {:>24} | {:>9} {:>9} {:>9} {:>9} | {:>9} {:>9} {:>9} {:>9}",
         "size",
@@ -163,6 +193,37 @@ fn main() {
             black_box(&grad);
         });
 
+        let t_tangent = time(|| {
+            black_box(model.analyze_with_tangent(black_box(&input), &direction));
+        });
+        let t_batch = time(|| {
+            model.analyze_batch_into(black_box(&batch), &mut batch_outputs, &mut workspace);
+            black_box(&batch_outputs);
+        }) / BATCH as f64;
+        let t_scalars_batch = time(|| {
+            model.analyze_scalars_batch_into(black_box(&batch), &mut batch_scalars, &mut workspace);
+            black_box(&batch_scalars);
+        }) / BATCH as f64;
+        let t_eval_tangent = time(|| {
+            net.evaluate_with_tangent(black_box(&x), black_box(&dx), &mut y, &mut dy);
+            black_box((&y, &dy));
+        });
+        let t_eval_batch = time(|| {
+            net.evaluate_batch(black_box(&x_batch), &mut y_batch, BATCH, &mut workspace);
+            black_box(&y_batch);
+        }) / BATCH as f64;
+        rows.push((
+            size,
+            t_analyze,
+            [
+                t_tangent,
+                t_batch,
+                t_scalars_batch,
+                t_eval_tangent,
+                t_eval_batch,
+            ],
+        ));
+
         println!(
             "{:<9} {:>24} | {:>9.2} {:>9.2} {:>9.2} {:>9.2} | {:>9.2} {:>9.2} {:>9.2} {:>9.2}",
             size.as_str(),
@@ -182,5 +243,52 @@ fn main() {
          analyze_scalars_with_gradients; evaluate: one input, eval+jac: one input with 23 seeds, \
          pair: evaluate_pair with two inputs, first+grd: evaluate_first_with_gradients for the \
          {SCALARS} scalar outputs of one input)"
+    );
+
+    println!();
+    println!(
+        "{:<9} | {:>9} {:>9} {:>9} {:>9} | {:>9} {:>9} | {:>7} {:>7} {:>7}",
+        "size",
+        "analyze",
+        "tangent",
+        "batch",
+        "s/ batch",
+        "eval+tan",
+        "eval bat",
+        "tan/a",
+        "a/bat",
+        "a/s bat"
+    );
+    for (
+        size,
+        t_analyze,
+        [
+            t_tangent,
+            t_batch,
+            t_scalars_batch,
+            t_eval_tangent,
+            t_eval_batch,
+        ],
+    ) in rows
+    {
+        println!(
+            "{:<9} | {:>9.2} {:>9.2} {:>9.2} {:>9.2} | {:>9.2} {:>9.2} | {:>6.2}x {:>6.2}x {:>6.2}x",
+            size.as_str(),
+            t_analyze,
+            t_tangent,
+            t_batch,
+            t_scalars_batch,
+            t_eval_tangent,
+            t_eval_batch,
+            t_tangent / t_analyze,
+            t_analyze / t_batch,
+            t_analyze / t_scalars_batch
+        );
+    }
+    println!(
+        "(microseconds per call or per point; tangent: analyze_with_tangent along alpha; batch / \
+         s/ batch: analyze_batch_into / analyze_scalars_batch_into per point of a {BATCH}-point \
+         sweep; eval+tan: evaluate_with_tangent; eval bat: evaluate_batch per point of {BATCH}; \
+         tan/a: tangent cost in analyze calls; a/bat, a/s bat: speedup per point over analyze)"
     );
 }

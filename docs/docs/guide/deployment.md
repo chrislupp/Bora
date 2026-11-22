@@ -101,13 +101,14 @@ returning `Box<dyn std::error::Error>` and with error-handling crates.
 A `NeuralFoil` is immutable after construction and is `Send` and `Sync`. Load
 it once and share a reference; the analysis calls take `&self`.
 
-Bora evaluates one input per call and does not spawn threads itself. To
-analyze many inputs at once, such as every spanwise station of a wing or every
-candidate of a population-based optimizer, split them across threads yourself.
-With the standard library alone:
+Bora does not spawn threads itself. For many inputs at once, such as every
+spanwise station of a wing or every candidate of a population-based optimizer,
+first use the [batched calls](./analysis.md#many-inputs-at-once), which are
+about twice as fast per input on one thread. For more, split the inputs across
+threads yourself. With the standard library alone:
 
 ```rust
-use bora::{AeroInput, AeroScalars, NeuralFoil};
+use bora::{AeroInput, AeroScalars, BatchWorkspace, NeuralFoil};
 
 fn analyze_all(model: &NeuralFoil, inputs: &[AeroInput]) -> Vec<AeroScalars> {
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
@@ -117,9 +118,8 @@ fn analyze_all(model: &NeuralFoil, inputs: &[AeroInput]) -> Vec<AeroScalars> {
     std::thread::scope(|scope| {
         for (inputs, results) in inputs.chunks(chunk).zip(results.chunks_mut(chunk)) {
             scope.spawn(move || {
-                for (input, result) in inputs.iter().zip(results) {
-                    *result = model.analyze_scalars(input);
-                }
+                let mut workspace = BatchWorkspace::default();
+                model.analyze_scalars_batch_into(inputs, results, &mut workspace);
             });
         }
     });
@@ -127,5 +127,5 @@ fn analyze_all(model: &NeuralFoil, inputs: &[AeroInput]) -> Vec<AeroScalars> {
 }
 ```
 
-A single analysis takes microseconds, so threads only pay off for batches of
-at least a few hundred inputs.
+Each thread analyzes its share as one batch. A single analysis takes
+microseconds, so threads only pay off for at least a few hundred inputs.

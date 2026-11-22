@@ -127,22 +127,82 @@ upper-surface transition at 49% of chord.
 The edge velocity gives the surface pressure coefficient through Bernoulli's
 relation for incompressible flow, $C_p = 1 - (u_e/V_\infty)^2$.
 
-## The four analysis calls
+## The analysis calls
 
 | Call | Returns | Cost relative to `analyze` (xlarge) |
 |------|---------|------------------------------------:|
 | `analyze(&input)` | `AeroOutput` | 1 |
 | `analyze_scalars(&input)` | `AeroScalars` | 0.8 |
+| `analyze_with_tangent(&input, &direction)` | `AeroTangent` | 2.0 |
 | `analyze_scalars_with_gradients(&input)` | `AeroScalarResult` | 2.6 |
 | `analyze_with_gradients(&input)` | `AeroResult` | 12 |
 
 `AeroScalars` holds the six scalar fields of `AeroOutput` under the same
 names, without the boundary layer. Its values are bitwise identical to those
-from `analyze`. The gradient calls are described in [Gradients](./gradients.md).
+from `analyze`. The derivative calls are described in [Gradients](./gradients.md),
+and the batched forms of `analyze` and `analyze_scalars` under
+[Many inputs at once](#many-inputs-at-once).
 
 None of these calls can fail or mutate the model. Out-of-range inputs produce
 a low confidence, not an error. One input is worth guarding in your own code:
 `re` must be positive, because the model takes its logarithm.
+
+## Many inputs at once
+
+Python NeuralFoil evaluates arrays of operating points in one vectorized call.
+Bora's equivalent is `analyze_batch`, which takes a slice of `AeroInput`s, any
+mix of airfoils and operating points, and returns one `AeroOutput` per input,
+in order:
+
+```rust
+use bora::{AeroInput, AeroOutput, BatchWorkspace, ModelSize, NeuralFoil};
+
+let model = NeuralFoil::new(ModelSize::XLarge)?;
+let inputs: Vec<AeroInput> = (0..64)
+    .map(|i| AeroInput { alpha: -4.0 + 0.25 * i as f64, ..input })
+    .collect();
+let outputs = model.analyze_batch(&inputs);
+
+// In a solver loop, keep the output buffer and the workspace between
+// iterations so that repeated calls do not allocate.
+let mut results = vec![AeroOutput::default(); inputs.len()];
+let mut workspace = BatchWorkspace::default();
+model.analyze_batch_into(&inputs, &mut results, &mut workspace);
+
+// Scalar outputs only, as `AeroScalars`.
+let scalars = model.analyze_scalars_batch(&inputs);
+```
+
+`analyze_scalars_batch_into` is the allocation-free form of the last call. A
+`BatchWorkspace` grows on first use and can be shared between network sizes.
+
+The batched calls push blocks of eight network evaluations (four inputs and
+their mirror images) through each weight matrix together, instead of reading
+the weights once per input. A batch of 64 is about twice as fast per input as
+a loop over the single-input calls.
+
+<TableCaption>
+Time per input in microseconds for a batch of 64 (Apple M1 Pro, one thread).
+</TableCaption>
+
+| `ModelSize` | `analyze` | `analyze_batch` | Speedup | `analyze_scalars` | `analyze_scalars_batch` | Speedup |
+|-------------|----------:|----------------:|--------:|------------------:|------------------------:|--------:|
+| `XXSmall` | 4.9 | 2.5 | 1.9× | 2.2 | 1.1 | 2.1× |
+| `XSmall` | 5.9 | 2.9 | 2.0× | 3.1 | 1.5 | 2.1× |
+| `Small` | 7.6 | 3.8 | 2.0× | 4.3 | 2.0 | 2.1× |
+| `Medium` | 9.2 | 4.4 | 2.1× | 5.9 | 2.6 | 2.3× |
+| `Large` | 22.9 | 9.9 | 2.3× | 16.8 | 7.0 | 2.4× |
+| `XLarge` | 27.2 | 11.8 | 2.3× | 21.6 | 8.9 | 2.4× |
+| `XXLarge` | 84 | 34 | 2.5× | 72.5 | 29.0 | 2.5× |
+| `XXXLarge` | 357 | 147 | 2.4× | 331 | 134 | 2.5× |
+
+Small batches gain less: two inputs are about 1.1 to 1.2 times faster per
+input, three about 1.5 to 1.9 times, and a single input costs the same as
+`analyze`. Results agree with the single-input calls to within a few units in
+the last place, because the batched kernel sums in a different order and uses
+its own vectorizable exponential, and an input's result does not depend on its
+position in the batch or on the other inputs. There are no batched gradient
+calls.
 
 ## Symmetry
 
