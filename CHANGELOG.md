@@ -9,31 +9,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Network::evaluate_pair`: evaluates the network at two inputs in one traversal of the
+  weights, bitwise identical to two `Network::evaluate` calls
+- `cargo bench` timing harness (`benches/kernels.rs`, std only) for `NeuralFoil::analyze`,
+  `NeuralFoil::analyze_with_gradients` and the network passes at every model size
+- `NeuralFoil::analyze_scalars` and `NeuralFoil::analyze_scalars_with_gradients`, returning the
+  new `AeroScalars` / `AeroScalarResult` (`AeroScalars` + `AeroScalarGradients`) types: the six
+  scalar outputs without the boundary layer. Values are bitwise identical to `analyze`, and the
+  gradients come from reverse-mode differentiation, matching `analyze_with_gradients` to
+  rounding. On Apple M1 Pro, `analyze_scalars` is ~1.1-2.2x faster than `analyze` and
+  `analyze_scalars_with_gradients` ~4-8x faster than `analyze_with_gradients`
+- `Network::evaluate_first` (only the first `n` outputs) and
+  `Network::evaluate_first_with_gradients` (those outputs plus their gradients with respect to the
+  network inputs, by reverse-mode differentiation)
 - Apache-2.0 license header with the public release statement (case number
   AFRL-2026-2087) and DoD disclaimers in every Rust source file and the README
 - README citation section with BibTeX entries for the NeuralFoil paper and Peter Sharpe's
   PhD thesis
 - `NeuralFoil::analyze_with_tangent` and `AeroTangent`: forward-mode Jacobian-vector product
   giving the directional derivative of every output (scalars and boundary layer arrays) along
-  one direction in the 23-entry input space, at about 1.1-1.7x the cost of `analyze` instead of
-  ~13x for `analyze_with_gradients`; backed by the single-direction kernel
-  `Network::evaluate_with_tangent`
-- Reverse-mode gradients of selected scalar outputs:
-  `NeuralFoil::analyze_with_scalar_gradients(&input, &[ScalarOutput::Cl, ScalarOutput::Cd])`
-  returns the full `AeroOutput` plus one gradient per requested output (`ScalarGradients`),
-  matching `analyze_with_gradients` to rounding at a fraction of its cost (`[Cl, Cd]` costs
-  about 1.4-1.7x `analyze` versus 13-18x for the full forward-mode gradients)
-- `ScalarOutput` enum (with `ALL`, `value_of`, and `gradient_of` helpers)
-- Reverse-mode network kernel: `Network::evaluate_with_tape` records a `NetworkTape`, and
-  `Network::backpropagate` computes `J^T y_bar` for one or several output cotangents per sweep
+  one direction in the 23-entry input space. On Apple M1 Pro it costs 1.8-2.0x `analyze`
+  versus 11-13x for `analyze_with_gradients`; `output` is bitwise identical to `analyze`.
+  Backed by the single-direction kernel `Network::evaluate_with_tangent` (runtime AVX2+FMA
+  dispatch on x86-64 like the other passes)
 - Batch analysis: `NeuralFoil::analyze_batch(&inputs) -> Vec<AeroOutput>` and the
-  allocation-free `NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`
-  evaluate many operating points per call, 2.6x (xxsmall) to 5.8x (xxxlarge) faster per point
-  than a loop over `analyze` on an Apple M1 Pro; results match `analyze` to within a few ulps
+  allocation-free `NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`, plus
+  the scalar-only `NeuralFoil::analyze_scalars_batch` / `analyze_scalars_batch_into` returning
+  `AeroScalars`. For a 64-point batch on Apple M1 Pro they are 1.9x (xxsmall) to 2.4x
+  (xxxlarge) faster per point than a loop over `analyze`, and 2.1x to 2.5x faster than a loop
+  over `analyze_scalars`; results match the single-point calls to within a few ulps
 - Batched network kernel `Network::evaluate_batch` (feature-major `input_size() x n_points`
   in, `output_size() x n_points` out) with reusable `BatchWorkspace` scratch space: blocks of
   `BATCH_BLOCK_SIZE` (8) points are pushed through each weight matrix four output rows at a
-  time with a vectorizable swish activation, 3.4x to 6x faster than per-point `evaluate`
+  time with a vectorizable swish activation (runtime AVX2+FMA dispatch on x86-64), 2.7x
+  (xxsmall) to 3.5x (xxxlarge) faster per point than `Network::evaluate`
+
+### Changed
+
+- Faster network kernels: 16-accumulator dot products, a register-accumulated forward-mode
+  Jacobian kernel (seed counts up to 32 padded to a multiple of 4), one sigmoid evaluation per
+  neuron for swish and its derivative, and one buffer allocation per pass instead of one per
+  layer. On Apple M1 Pro, `Network::evaluate` is ~1.2-1.7x and `Network::evaluate_with_jacobian`
+  ~2.1-2.3x faster; results differ from 0.1.0 in the last bits because the summation order
+  changed
+- `NeuralFoil::analyze` evaluates the original and alpha-flipped inputs with
+  `Network::evaluate_pair` (~1.3-2.4x faster end to end); `NeuralFoil::analyze_with_gradients`
+  is ~2.0-2.3x faster from the Jacobian kernel
+- `Network::evaluate_with_jacobian` accepts `n_seed = 0` (computing only the values) instead
+  of panicking
+- When `include_boundary_layer` is false, the Philote discipline's `compute` uses
+  `NeuralFoil::analyze_scalars` (same outputs, bitwise) and `compute_partials` uses the
+  reverse-mode `NeuralFoil::analyze_scalars_with_gradients` (partials agree with the
+  forward-mode ones to rounding, ~1e-13 relative)
+- `examples/optimize_airfoil.rs` uses `NeuralFoil::analyze_scalars_with_gradients`
+- On x86-64, the network passes detect AVX2 and FMA at run time (once per process) and use
+  them when available, so default builds (including dependents from crates.io) no longer need
+  `RUSTFLAGS="-C target-cpu=native"` for FMA and 256-bit vectors; CPUs without them use the
+  SSE2 baseline, and builds with AVX2/FMA enabled statically skip the check. Results with and
+  without FMA differ in the last bits. aarch64 is unchanged
 
 ## [0.1.0] - 2026-09-19
 

@@ -22,6 +22,10 @@ cargo test --all-features
 cargo test --test neuralfoil
 cargo test --all-features -- matches_python
 
+# Run the kernel benchmarks (all model sizes, or only the named ones)
+cargo bench
+cargo bench -- medium xlarge
+
 # Run examples
 cargo run --release --example example
 cargo run --release --example optimize_airfoil
@@ -45,8 +49,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 - `philote` - Build the Philote discipline (`bora::philote`) and the `bora_server` gRPC binary (default: off; uses the `philote-mdo` crate, which vendors `protoc`, so no system gRPC/protobuf install is needed)
 
 ### Performance
-- `RUSTFLAGS="-C target-cpu=native"` enables hardware FMA on x86-64; aarch64 always has it
-- The network kernels in `src/network.rs` (`dot`, `mul_add`, the Jacobian row accumulation) are hand-tuned; benchmark against the previous version before simplifying them
+- FMA: aarch64 always has it. On x86-64, `dispatch` in `src/network.rs` runs each network pass through an `#[target_feature(enable = "avx2,fma")]` copy when `is_x86_feature_detected!` reports AVX2 and FMA (decided once per process), else the SSE2 baseline; `RUSTFLAGS="-C target-cpu=native"` compiles AVX2/FMA in statically and removes the check. Kernels take the multiply-add strategy as a type parameter (`M: MulAdd`, `Fused`/`Unfused`), because `cfg(target_feature)` inside a `#[target_feature]` function still reflects the crate-wide flags. Everything a pass calls must stay `#[inline(always)]`: a non-inlined callee is compiled without AVX2/FMA, and `f64::mul_add` there becomes a slow libm call
+- Testing the x86-64 baseline path on an AVX2 machine: set `BORA_DISABLE_AVX2_FMA=1` (hidden switch, read once per process; not public API), e.g. `BORA_DISABLE_AVX2_FMA=1 cargo test --all-features`
+- The network kernels in `src/network.rs` (the `MulAdd` strategies, the 16-accumulator `dot`/`dot2`, the register-accumulated `jacobian_row` with seed counts padded to a multiple of 4, and the `Lanes` kernel-per-type dispatch) are hand-tuned; small rewrites (e.g. selecting a kernel with `if B == 2`, indexing generic `[[f64; K]; B]` accumulators) measured 15-100% slower
+- The reverse-mode kernels `adjoint_rows` (`ADJOINT_ROW_BLOCK` = 4 weight rows per update, up to `MAX_ADJOINT_LANES` = 16 lanes shared across inputs) and `dense_layer_slopes` (values plus swish slopes in one forward traversal) are hand-tuned as well; see the measurements in their doc comments
+- The tangent pass (`dense_layer_tangent`: value and tangent lanes through `dot2`) and the batched kernel (`dense_block`: `BATCH_BLOCK_SIZE` points x 4 hand-unrolled output rows, `exp_vectorizable` for swish) are hand-tuned too: sharing one weight traversal between the original and flipped tangent passes, a 4-vector dot, and a generic `[[f64; B]; R]` accumulator block all measured slower (see their doc comments)
+- `cargo bench` (`benches/kernels.rs`, std only) times the analysis calls (including the tangent and batched ones) and the network passes for every model size; `cargo bench -- medium xlarge` restricts the sizes. Compare against the previous version before and after any kernel change
 
 ## Documentation Site
 
@@ -82,6 +90,7 @@ src/                   # Library crate (lib.rs, types, kulfan, network, neuralfo
 src/bin/               # bora_server (requires the `philote` feature)
 tests/                 # Integration tests; tests/common/ holds shared loaders
 tests/data/            # Committed HDF5 reference data from Python NeuralFoil
+benches/               # std-only timing harness (`cargo bench`)
 examples/              # Example programs
 data/                  # Network weights (HDF5)
 scripts/               # Weight conversion, reference data generation, release helpers

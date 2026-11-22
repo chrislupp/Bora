@@ -35,6 +35,10 @@ required-features = ["philote"]
 name = "philote_discipline"
 required-features = ["philote"]
 
+[[bench]]
+name = "kernels"
+harness = false
+
 [profile.release]
 codegen-units = 1
 lto = "thin"

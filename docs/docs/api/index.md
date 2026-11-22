@@ -18,24 +18,27 @@ cargo doc --open --all-features
 - **`NeuralFoil`** — The analysis model. Construct with
   `NeuralFoil::new(size)`, `NeuralFoil::with_data_dir(size, dir)`, or
   `NeuralFoil::from_parts(network, distribution)` (all return
-  `bora::Result<NeuralFoil>`), then call `analyze(&input)`,
-  `analyze_with_gradients(&input)`, or
-  `analyze_with_tangent(&input, &direction)` (a directional derivative along
-  one `Gradient`-shaped direction, much cheaper than full gradients).
+  `bora::Result<NeuralFoil>`), then call `analyze(&input)` or
+  `analyze_with_gradients(&input)` for every output, or `analyze_scalars(&input)`
+  or `analyze_scalars_with_gradients(&input)` for the six scalar outputs only
+  (much faster when the boundary layer is not needed; see
+  [Scalar-only analysis](../guide/concepts.md#scalar-only-analysis)).
+  `analyze_with_tangent(&input, &direction)` gives the directional derivative
+  of every output along one `Gradient`-shaped direction, much cheaper than
+  full gradients (see
+  [Directional derivatives](../guide/concepts.md#directional-derivatives)).
   `model_size()` reports the loaded size.
   Immutable and safe to share across threads after construction.
-  `analyze_with_scalar_gradients(&input, &outputs)` returns the output plus
-  the gradients of only the requested scalar outputs (`&[ScalarOutput]`) by
-  reverse-mode differentiation — much cheaper when only a few are needed.
 - **`Network`** / **`Layer`** — Low-level MLP container: loads HDF5 (`.h5`)
   weight files with `Network::load(path)` or `Network::from_bytes(data)` and
-  evaluates the raw network (`evaluate`) with optional forward-mode Jacobian
+  evaluates the raw network (`evaluate`, or `evaluate_pair` for two inputs in
+  one traversal of the weights) with optional forward-mode Jacobian
   propagation (`evaluate_with_jacobian`) or single-direction tangent
-  propagation (`evaluate_with_tangent`).
-  For reverse mode, `evaluate_with_tape(x, y, &mut tape)` records a
-  **`NetworkTape`** and `backpropagate(&mut tape, y_bar, n_cotangents, x_bar)`
-  computes `J^T y_bar` for one or several output cotangents (row-major
-  `n_cotangents x output_size()`); the tape is reusable across calls.
+  propagation (`evaluate_with_tangent(x, dx, y, dy)`). `evaluate_first(x, n, y)`
+  computes only the first `n` outputs, and
+  `evaluate_first_with_gradients(x, n, y, grad)` adds their gradients with
+  respect to the network inputs by reverse-mode differentiation (row-major
+  `n x input_size()`).
 - **`InputDistribution`** — Training-distribution statistics used for the
   Mahalanobis-based analysis confidence; `InputDistribution::load(path)` or
   `InputDistribution::from_bytes(data)`.
@@ -59,13 +62,17 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
 ## Batch Analysis
 
 - **`NeuralFoil::analyze_batch(&inputs)`** — Analyzes a slice of `AeroInput`s
-  and returns a `Vec<AeroOutput>` (one per input, in order). Several times
+  and returns a `Vec<AeroOutput>` (one per input, in order). About two times
   faster per point than a loop over `analyze` for batches of more than a few
   points; results agree with `analyze` to within a few ulps.
 - **`NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`**
   — Same, writing into a caller-provided `&mut [AeroOutput]` and reusing a
   `BatchWorkspace`, so repeated calls (e.g. once per solver iteration) do not
   allocate.
+- **`NeuralFoil::analyze_scalars_batch(&inputs)`** /
+  **`analyze_scalars_batch_into(&inputs, &mut outputs, &mut workspace)`** —
+  The batched counterparts of `analyze_scalars`, returning `AeroScalars`; they
+  skip the boundary layer rows of the network's output layer.
 - **`Network::evaluate_batch(x, y, n_points, &mut workspace)`** — Batched
   network kernel. `x` is `input_size() x n_points` and `y` is
   `output_size() x n_points`, both row-major with one column per point
@@ -89,16 +96,13 @@ timings.
   output with respect to the 23 inputs, mirroring the output layout.
 - **`AeroResult`** — Bundles `output: AeroOutput` and
   `gradient: AeroGradients`.
+- **`AeroScalars`** / **`AeroScalarGradients`** / **`AeroScalarResult`** —
+  The scalar fields of `AeroOutput` (`cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`,
+  `analysis_confidence`), their gradients, and the bundle of both returned by
+  `analyze_scalars_with_gradients`.
 - **`AeroTangent`** — Bundles `output: AeroOutput` and
   `tangent: AeroOutput`, the directional derivative of every output field
   (returned by `analyze_with_tangent`).
-- **`ScalarOutput`** — `AnalysisConfidence`, `Cl`, `Cd`, `Cm`, `TopXtr`,
-  `BotXtr`; selects gradients for `analyze_with_scalar_gradients`.
-  `ScalarOutput::ALL` lists all six; `value_of(&output)` and
-  `gradient_of(&gradients)` read the matching `AeroOutput` /
-  `AeroGradients` field.
-- **`ScalarGradients`** — Bundles `output: AeroOutput` and
-  `gradients: Vec<Gradient>` (one per requested output, in request order).
 - **`Gradient`** — `[f64; NUM_INPUTS]`; indices named in `bora::input_index`
   (`UPPER_WEIGHTS`, `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`,
   `ALPHA`, `RE`, `N_CRIT`, `XTR_UPPER`, `XTR_LOWER`).
@@ -163,6 +167,11 @@ dimensions dropped.
 | `model_size` | str | Network size name, e.g. `"xlarge"` (default) |
 | `data_directory` | str | Directory with the `.h5` weight files; empty uses the standard resolution order |
 | `include_boundary_layer` | bool | Expose boundary layer outputs and their partials (default false) |
+
+Without boundary layer outputs, `compute` uses `analyze_scalars` and
+`compute_partials` uses the reverse-mode `analyze_scalars_with_gradients`, which
+is several times faster. With them, both use the full `analyze` and
+`analyze_with_gradients`.
 
 The `bora_server` binary serves the discipline:
 

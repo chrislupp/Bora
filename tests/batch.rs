@@ -1,11 +1,42 @@
-//! Batched evaluation (`Network::evaluate_batch`, `NeuralFoil::analyze_batch`)
-//! against the single-point calls.
+/*
+    Bora: Rust Port of NeuralFoil
+
+    Copyright 2026 Christopher A. Lupp
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+    This work has been cleared for public release, distribution unlimited, case
+    number: AFRL-2026-2087.
+
+    The views expressed are those of the authors and do not reflect the
+    official guidance or position of the United States Government, the
+    Department of Defense or of the United States Air Force.
+
+    Statement from DoD: The Appearance of external hyperlinks does not
+    constitute endorsement by the United States Department of Defense (DoD) of
+    the linked websites, of the information, products, or services contained
+    therein. The DoD does not exercise any editorial, security, or other
+    control over the information you may find at these locations.
+*/
+
+//! Batched evaluation (`Network::evaluate_batch`, `NeuralFoil::analyze_batch`,
+//! `NeuralFoil::analyze_scalars_batch`) against the single-point calls.
 
 mod common;
 
 use bora::{
-    AeroInput, AeroOutput, BATCH_BLOCK_SIZE, BatchWorkspace, ModelSize, NUM_LATENT_INPUTS,
-    NUM_LATENT_OUTPUTS, Network,
+    AeroInput, AeroOutput, AeroScalars, BATCH_BLOCK_SIZE, BatchWorkspace, ModelSize,
+    NUM_LATENT_INPUTS, NUM_LATENT_OUTPUTS, Network,
 };
 use common::{Failures, WEIGHTS_DATA_DIR, model};
 
@@ -159,6 +190,88 @@ fn analyze_batch_into_matches_analyze_batch_and_reuses_workspace() {
         model.analyze_batch_into(&inputs, &mut outputs, &mut workspace);
         assert_eq!(outputs, model.analyze_batch(&inputs), "{size}");
     }
+}
+
+/// The scalar fields of an [`AeroOutput`], for comparison with [`AeroScalars`].
+fn scalars_of(output: &AeroOutput) -> AeroScalars {
+    AeroScalars {
+        analysis_confidence: output.analysis_confidence,
+        cl: output.cl,
+        cd: output.cd,
+        cm: output.cm,
+        top_xtr: output.top_xtr,
+        bot_xtr: output.bot_xtr,
+    }
+}
+
+/// An [`AeroOutput`] carrying only the given scalars, so that the scalar
+/// fields can be compared with [`compare_outputs`].
+fn output_of(scalars: &AeroScalars) -> AeroOutput {
+    AeroOutput {
+        analysis_confidence: scalars.analysis_confidence,
+        cl: scalars.cl,
+        cd: scalars.cd,
+        cm: scalars.cm,
+        top_xtr: scalars.top_xtr,
+        bot_xtr: scalars.bot_xtr,
+        ..AeroOutput::default()
+    }
+}
+
+#[test]
+fn analyze_scalars_batch_matches_analyze_scalars_for_all_sizes_and_lengths() {
+    for size in ModelSize::ALL {
+        let model = model(size.as_str());
+        let mut failures = Failures::default();
+        for (seed, &n) in LENGTHS.iter().enumerate() {
+            let inputs = random_inputs(n, 0x2545_F491_4F6C_DD1D ^ seed as u64);
+            let batch = model.analyze_scalars_batch(&inputs);
+            assert_eq!(batch.len(), n);
+            for (i, (input, scalars)) in inputs.iter().zip(&batch).enumerate() {
+                let context = format!("{size}, length {n}, point {i}");
+                compare_outputs(
+                    &mut failures,
+                    &output_of(scalars),
+                    &output_of(&model.analyze_scalars(input)),
+                    input.re,
+                    &context,
+                );
+            }
+            // The scalar path skips the boundary layer rows of the output
+            // layer, which does not change the scalar rows' arithmetic.
+            let full: Vec<AeroScalars> = model
+                .analyze_batch(&inputs)
+                .iter()
+                .map(scalars_of)
+                .collect();
+            assert_eq!(batch, full, "{size}, length {n}");
+        }
+        failures.assert_none();
+    }
+}
+
+#[test]
+fn analyze_scalars_batch_into_matches_analyze_scalars_batch_and_reuses_workspace() {
+    let mut workspace = BatchWorkspace::default();
+    for size in [ModelSize::XLarge, ModelSize::XXSmall, ModelSize::Large] {
+        let model = model(size.as_str());
+        let inputs = random_inputs(29, 11);
+        let mut outputs = vec![AeroScalars::default(); inputs.len()];
+        model.analyze_scalars_batch_into(&inputs, &mut outputs, &mut workspace);
+        assert_eq!(outputs, model.analyze_scalars_batch(&inputs), "{size}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "differ in length")]
+fn analyze_scalars_batch_into_rejects_mismatched_lengths() {
+    let inputs = random_inputs(3, 1);
+    let mut outputs = vec![AeroScalars::default(); 4];
+    model("xxsmall").analyze_scalars_batch_into(
+        &inputs,
+        &mut outputs,
+        &mut BatchWorkspace::default(),
+    );
 }
 
 #[test]
