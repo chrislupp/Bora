@@ -1,0 +1,299 @@
+.figure {
+    font-family: var(--bora-font-ui);
+}
+
+.stage {
+    position: relative;
+}
+
+.wide {
+    display: none;
+}
+
+/* ── Plates: the form that fits a reading column or a narrow window ── */
+
+.plates {
+    display: grid;
+    grid-template-columns: 30fr 26fr;
+}
+
+.plates > svg {
+    border-top: var(--bora-rule-heavy);
+}
+
+.plates > .profile {
+    grid-column: 1 / -1;
+    border-top: 0;
+}
+
+.profileSmall {
+    display: none;
+}
+
+.drag {
+    border-left: var(--bora-rule-heavy);
+}
+
+/* ── Title block ── */
+
+.block {
+    border: var(--bora-rule-heavy);
+    border-top: 0;
+    background: var(--bora-paper);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    font-size: 0.95rem;
+    line-height: 1.35;
+}
+
+.cell {
+    margin: 0;
+    padding: 0.6rem 0.9rem;
+    border: 0;
+    border-top: var(--bora-rule);
+    min-width: 0;
+}
+
+.describe,
+.readouts {
+    grid-column: 1 / -1;
+}
+
+.describe {
+    border-top: 0;
+}
+
+.condition {
+    border-left: var(--bora-rule);
+}
+
+.name {
+    grid-column: 1 / -1;
+    padding: 0.7rem 0.9rem 0.65rem;
+    font-family: var(--bora-font-title);
+    font-size: 2.1rem;
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+/* The key to the plot symbols. */
+.key ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 1.1rem;
+    list-style: none;
+    margin: 0.25rem 0 0;
+    padding: 0;
+}
+
+.key li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums lining-nums;
+}
+
+.key svg {
+    width: 1rem;
+    flex: none;
+}
+
+.condition strong {
+    display: block;
+    margin-top: 0.25rem;
+    font-variant-numeric: tabular-nums lining-nums;
+}
+
+.readouts {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.5rem 0.9rem;
+}
+
+.readouts dt {
+    font-size: 0.82rem;
+    line-height: 1.25;
+}
+
+.readouts dd {
+    margin: 0.1rem 0 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums lining-nums;
+    white-space: nowrap;
+}
+
+/* ── Table of the sweep ── */
+
+.scroll {
+    overflow-x: auto;
+    margin-top: 1.25rem;
+}
+
+.table {
+    margin: 0 0 0.6rem;
+    min-width: 40rem;
+    font-size: 0.85rem;
+}
+
+.table th,
+.table td {
+    text-align: right;
+    white-space: normal;
+    padding-right: 0;
+    padding-left: 0.75rem;
+}
+
+.table td,
+.table tbody th {
+    white-space: nowrap;
+}
+
+/* The row at the marked angle is ruled off, heavy, like the mark on the chart. */
+.table .marked th,
+.table .marked td {
+    font-weight: 700;
+    border-top: var(--bora-rule-heavy);
+    border-bottom: var(--bora-rule-heavy);
+}
+
+/* ── Sheet: the page-wide plate on the home page ── */
+
+.sheet {
+    margin: 0;
+}
+
+.sheet .stage {
+    border-bottom: var(--bora-rule-heavy);
+    padding: 1rem;
+}
+
+/* Below the page-wide form the nameplate leads, so the words come first, and
+   the plates keep to the width of a reading column. */
+@media (max-width: 1239px) {
+    .sheet .stage {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sheet .nameplate {
+        order: -1;
+        border-top: var(--bora-rule-heavy);
+        margin-bottom: 1rem;
+    }
+}
+
+.sheet .plates,
+.sheet .block {
+    max-width: 48rem;
+}
+
+/* On the home page the block is the nameplate and the opening of the page. */
+.nameplate {
+    display: block;
+}
+
+.nameplate .name {
+    padding: 0.9rem 1.1rem 0.85rem;
+    font-size: 2.6rem;
+}
+
+.lede {
+    border-top: var(--bora-rule);
+    padding: 0.9rem 1.1rem 1rem;
+    font-size: 1rem;
+    line-height: 1.55;
+}
+
+.lede h1 {
+    margin: 0 0 0.75rem;
+    font-size: 1.45rem;
+    line-height: 1.2;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+}
+
+.lede p {
+    margin: 0 0 0.75rem;
+}
+
+.lede p:last-child {
+    margin-bottom: 0;
+}
+
+.sheetCaption {
+    display: none;
+}
+
+@media (min-width: 1240px) {
+    .sheet .stage {
+        padding: 0;
+    }
+
+    .sheet .wide {
+        display: block;
+    }
+
+    .sheet .plates {
+        display: none;
+    }
+
+    .sheet .block {
+        max-width: none;
+        position: absolute;
+        right: 3rem;
+        bottom: 2.25rem;
+        width: 27rem;
+        border-top: var(--bora-rule-heavy);
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sheet .describe {
+        border-top: var(--bora-rule);
+    }
+
+    .sheet .condition {
+        border-left: 0;
+    }
+
+    .sheet .readouts {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    /* On a phone the plates stack, and both charts keep one scale. */
+    .plates {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .plates > .profile {
+        display: none;
+    }
+
+    .plates > .profileSmall {
+        display: block;
+    }
+
+    .drag {
+        width: calc(100% * 26 / 30);
+        border-left: 0;
+        border-right: var(--bora-rule-heavy);
+    }
+
+    .block {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .condition {
+        border-left: 0;
+    }
+
+    .readouts {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}

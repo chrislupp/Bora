@@ -1,42 +1,34 @@
 ---
 sidebar_position: 2
 title: "Quickstart"
+description: "Analyze an airfoil with Bora and read off coefficients and their gradients."
 ---
 
 # Quickstart
 
-This guide walks through a minimal Bora program: analyzing an airfoil and
-reading off aerodynamic coefficients and their gradients.
+This page analyzes one airfoil at one operating point and reads off the
+coefficients and a gradient. It assumes Bora is already a dependency of your
+project; see [Installation](./installation.md) if not.
 
-## Add the Dependency
+## A complete program
 
-Bora is distributed from GitHub. In your project's `Cargo.toml`:
-
-```toml
-[dependencies]
-bora = { git = "https://github.com/chrislupp/Bora" }
-```
-
-## Complete Example
-
-```rust
+```rust title="src/main.rs"
 use bora::{AeroInput, ModelSize, NeuralFoil, input_index};
 
 fn main() -> bora::Result<()> {
-    // Airfoil shape in Kulfan (CST) parameterization, 8 weights per side.
+    // Airfoil shape as Kulfan (CST) parameters: 8 weights per surface.
     let mut input = AeroInput::default();
     input.kulfan.upper_weights = [0.24, 0.31, 0.25, 0.35, 0.24, 0.35, 0.28, 0.32];
     input.kulfan.lower_weights = [-0.12, -0.05, -0.13, 0.02, -0.08, 0.06, 0.02, 0.06];
+    input.kulfan.leading_edge_weight = 0.02;
     input.kulfan.te_thickness = 0.0025;
 
-    // Operating condition.
+    // Operating point.
     input.alpha = 3.0; // degrees
     input.re = 1e6;
 
-    // Load the network (weights are found automatically; see below).
+    // Load the network once, then analyze as often as needed.
     let model = NeuralFoil::new(ModelSize::XLarge)?;
-
-    // Analyze, with analytic gradients.
     let result = model.analyze_with_gradients(&input);
 
     println!(
@@ -51,66 +43,89 @@ fn main() -> bora::Result<()> {
 }
 ```
 
-## Step-by-Step Explanation
-
-### 1. Describe the airfoil
-
-Bora uses the Kulfan (CST) parameterization: 8 Bernstein weights per surface,
-a leading-edge modification weight, and a trailing-edge thickness
-(`KulfanParameters`). If you have coordinates instead, fit parameters with
-`bora::fit_kulfan_parameters()`.
-
-### 2. Set the operating condition
-
-`AeroInput` also carries `alpha` (degrees), `re` (Reynolds number), `n_crit`,
-and forced transition locations (`xtr_upper`, `xtr_lower`). Its `Default`
-implementation gives `re = 1e6`, `n_crit = 9.0`, and `xtr_upper = xtr_lower =
-1.0` (free transition), so you only need to set what differs.
-
-### 3. Construct the model
-
-`NeuralFoil::new` loads the network weights once; the model is immutable and
-safe to share across threads afterwards. Model sizes range from
-`ModelSize::XXSmall` (fastest) to `ModelSize::XXXLarge` (most accurate);
-`ModelSize::XLarge` is the upstream default. The weight directory is taken from
-the `BORA_DATA_DIR` environment variable or, failing that, the crate's
-source-tree `data/` directory. Use `NeuralFoil::with_data_dir(size, dir)` to
-pass a directory explicitly.
-
-Loading returns a `bora::Result`, so a missing or malformed weight file is
-reported as a `bora::Error` rather than a panic.
-
-### 4. Analyze
-
-Use `analyze()` for outputs only (`AeroOutput`), or `analyze_with_gradients()`
-to also get the derivative of every output with respect to all 23 inputs
-(`AeroResult`). Gradients are exact (algorithmic differentiation through the
-network), not finite differences. Analysis calls cannot fail.
-
-If you only need the scalar outputs (coefficients, transition locations, and
-confidence), use `analyze_scalars()` and `analyze_scalars_with_gradients()`.
-They return the same scalar values, and the gradient version is about 4-8x
-faster than `analyze_with_gradients()`. See
-[Scalar-only analysis](../guide/concepts.md#scalar-only-analysis).
-
-For the derivative along a single input direction (for example d/d(alpha) of
-every output), `analyze_with_tangent()` is much cheaper than full gradients;
-see [Directional derivatives](../guide/concepts.md#directional-derivatives).
-To analyze many points at once, `analyze_batch()` and `analyze_scalars_batch()`
-are faster per point than a loop; see
-[Batch analysis](../guide/concepts.md#batch-analysis).
-
-### 5. Build and Run
-
 ```bash
 cargo run --release
 ```
 
-Always use `--release` for real work: unoptimized builds of the network
-evaluation are much slower.
+```text
+CL = 0.9516, CD = 0.00729, CM = -0.1301
+dCL/dalpha = 0.1019 per degree
+```
 
-## Next Steps
+This cambered section is the one used in every example in these docs and in
+the figure on the home page.
 
-- [Core Concepts](../guide/concepts.md) — inputs, outputs, and gradient layout
-- [Basic Usage](../examples/basic-usage.md) — worked examples, including
-  gradient-based optimization
+## What each step does
+
+### Describe the airfoil
+
+Bora takes the shape as 18 numbers: eight weights for each surface, a
+leading-edge weight and the trailing-edge thickness
+(`bora::KulfanParameters`). If you have coordinates instead, fit the
+parameters with `bora::fit_kulfan_parameters`.
+[Airfoil geometry](../guide/geometry.mdx) explains the parameterization and the
+fit.
+
+### Set the operating point
+
+`AeroInput` also carries the angle of attack in degrees (`alpha`), the
+chord Reynolds number (`re`), the critical amplification factor (`n_crit`) and
+forced transition locations (`xtr_upper`, `xtr_lower`).
+`AeroInput::default()` sets `re = 1e6`, `n_crit = 9.0` and free transition
+(`xtr_upper = xtr_lower = 1.0`), so you only set what differs.
+
+### Load the model
+
+`NeuralFoil::new` reads the NeuralFoil network weights from disk. This is the only step
+that can fail, and it returns a `bora::Result`. The model is immutable
+afterwards and can be shared between threads.
+
+There are eight network sizes, from `ModelSize::XXSmall` to
+`ModelSize::XXXLarge`. `XLarge` is NeuralFoil's default and a sound first
+choice; [Choosing a network size](../guide/model-sizes.md) has the numbers.
+
+### Analyze
+
+There are four main analysis calls. All of them are infallible.
+
+| Call | Returns | Gradients |
+|------|---------|-----------|
+| `analyze` | Everything, including the boundary layer | No |
+| `analyze_with_gradients` | Everything | Of every output |
+| `analyze_scalars` | The six scalar outputs | No |
+| `analyze_scalars_with_gradients` | The six scalar outputs | Of the six scalars |
+
+The six scalar outputs are `cl`, `cd`, `cm`, `top_xtr`, `bot_xtr` and
+`analysis_confidence`. If those are all you need, as in most optimization
+problems, the scalar calls return identical values and the gradient version is
+four to eight times faster. See [Gradients](../guide/gradients.md).
+
+Two more forms cover other needs: `analyze_with_tangent` returns the
+derivative of every output along one input direction at about twice the cost
+of `analyze` (see [Gradients](../guide/gradients.md#directional-derivatives)),
+and `analyze_batch` and `analyze_scalars_batch` analyze many inputs at once,
+about twice as fast per input as a loop (see
+[Many inputs at once](../guide/analysis.md#many-inputs-at-once)).
+
+## Check the confidence
+
+Every result carries `analysis_confidence`. Read it before you trust the other
+numbers:
+
+```rust
+let aero = model.analyze_scalars(&input);
+if aero.analysis_confidence < 0.9 {
+    eprintln!("low confidence ({:.2}): treat this result as extrapolation",
+        aero.analysis_confidence);
+}
+```
+
+[Analysis confidence](../guide/confidence.md) explains what the number means
+and how to use it as an optimization constraint.
+
+## Next
+
+- [Inputs and outputs](../guide/analysis.md) for every field and its units.
+- [Polar sweep](../examples/polar.mdx) for a lift curve and drag polar.
+- [Airfoil optimization](../examples/optimization.mdx) for a complete
+  gradient-based design loop.

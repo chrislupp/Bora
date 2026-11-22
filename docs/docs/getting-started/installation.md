@@ -1,138 +1,102 @@
 ---
 sidebar_position: 1
 title: "Installation"
+description: "Add Bora to a Cargo project, build it from source, and run its tests."
 ---
 
 # Installation
 
-Bora is a Rust crate built with Cargo. The network weights are stored in HDF5
-files that are read with the pure-Rust [`hdf5-pure`](https://crates.io/crates/hdf5-pure)
-crate, so no system HDF5 library (or any other C dependency) is required.
+Bora is a Rust crate built with Cargo. It needs a Rust toolchain and nothing
+else: the NeuralFoil network weights ship as HDF5 files read with the pure-Rust
+[`hdf5-pure`](https://crates.io/crates/hdf5-pure) crate, so there is no system
+HDF5 library, no BLAS and no machine-learning runtime to install.
 
-## Prerequisites
-
-| Dependency | Minimum Version | Notes |
-|------------|----------------|-------|
-| Rust toolchain | 1.89+ | Edition 2024; install via [rustup](https://rustup.rs) |
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Rust toolchain | 1.89 or newer | Edition 2024; install with [rustup](https://rustup.rs) |
 
 ```bash
-# Install or update the toolchain
 rustup update stable
 rustc --version
 ```
 
-## Using Bora as a Dependency
+## Add Bora to a project
 
-Bora is not published on crates.io. Add it to your project's `Cargo.toml` as a
-git dependency:
+Bora is not published on crates.io. Add it as a git dependency in your
+`Cargo.toml`:
 
 ```toml
 [dependencies]
 bora = { git = "https://github.com/chrislupp/Bora" }
 ```
 
-To also get the Philote discipline (`bora::philote`), enable the `philote`
-feature:
+The [Philote discipline](../guide/philote.md) is behind a Cargo feature:
 
 ```toml
 [dependencies]
 bora = { git = "https://github.com/chrislupp/Bora", features = ["philote"] }
 ```
 
-## Building from Source
+| Feature | Default | Adds |
+|---------|---------|------|
+| `philote` | off | `bora::philote::BoraDiscipline` and the `bora_server` gRPC executable |
 
-Clone the repository and build with Cargo:
+Cargo checks the repository out into its own cache, and Bora finds the weight
+files there without any configuration. If you later ship a binary to another
+machine, read [Weights and deployment](../guide/deployment.md).
+
+## Build from source
 
 ```bash
 git clone https://github.com/chrislupp/Bora
 cd Bora
-
-# Release build (recommended; the networks are slow in unoptimized builds)
 cargo build --release
 ```
 
-For a debug build:
+Always measure and run real work with `--release`. The networks are several
+times slower in an unoptimized build.
+
+To check the build, run the test suite and the basic example:
 
 ```bash
-cargo build
+cargo test --all-features
+cargo run --release --example example
 ```
 
-### Performance
+The tests compare Bora against outputs and Jacobians computed with Python
+NeuralFoil (stored in `tests/data/*.h5`), and against finite differences.
+`--all-features` includes the Philote discipline tests. To run one test file
+or filter by name:
 
-The network's inner loops use fused multiply-add (FMA) instructions. aarch64
-targets always have them. On x86-64, a default build checks once whether the
-CPU supports AVX2 and FMA and, if so, runs the network with them (256-bit
-vectors and FMA); older CPUs use the SSE2 baseline. No build flags are needed
-for this.
+```bash
+cargo test --test neuralfoil
+cargo test --all-features -- matches_python
+```
 
-Compiling for the host CPU builds the AVX2/FMA code in statically, which
-skips the run-time check (and lets the rest of the crate use the host's
-instruction set), at the cost of a binary that only runs on CPUs like the
-build machine:
+## Processor features
+
+The network's inner loops use fused multiply-add (FMA) instructions.
+
+- **aarch64** (Apple silicon, ARM servers) always has them.
+- **x86-64**: a default build checks once per process whether the CPU has AVX2
+  and FMA and uses them if so. Older CPUs fall back to the SSE2 baseline. No
+  build flags are needed.
+
+Compiling for the host CPU builds the AVX2 and FMA code in statically and skips
+the run-time check, at the cost of a binary that only runs on similar CPUs:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
-Results with and without FMA differ in the last bits, so the same input can
-give slightly different outputs on different x86-64 machines.
+Results computed with and without FMA differ in the last bits, so the same
+input can give very slightly different outputs on different x86-64 machines.
 
-## Cargo Features
+## API documentation
 
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `philote` | off | Philote discipline (`bora::philote::BoraDiscipline`) and the `bora_server` gRPC executable |
-
-Build the discipline server with:
+The rustdoc reference for every public item, including the Philote discipline,
+is built locally:
 
 ```bash
-cargo build --release --features philote --bin bora_server
+cargo doc --open --all-features
 ```
-
-## Running Tests
-
-The test suite consists of Cargo integration tests under `tests/`, including
-validation against reference outputs and gradients stored in
-`tests/data/*.h5`:
-
-```bash
-cargo test
-```
-
-To include the Philote discipline tests:
-
-```bash
-cargo test --all-features
-```
-
-To run a single test file or filter by test name:
-
-```bash
-cargo test --test neuralfoil
-cargo test gradient
-```
-
-## Weight Data
-
-The NeuralFoil weights ship in the repository's `data/` directory. At runtime,
-`NeuralFoil` locates them in this order:
-
-1. An explicit directory passed to `NeuralFoil::with_data_dir`.
-2. The `BORA_DATA_DIR` environment variable.
-3. The crate's source-tree `data/` directory (baked in at build time).
-
-If you move the compiled binary away from the source tree, set `BORA_DATA_DIR`
-or pass the directory explicitly.
-
-## Verifying the Installation
-
-A successful build, test run, and example run confirms the installation:
-
-```bash
-cargo build --release
-cargo test
-cargo run --release --example example
-```
-
-All tests should pass, and the example prints the aerodynamic coefficients of
-a sample airfoil.
