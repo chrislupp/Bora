@@ -77,6 +77,39 @@ Gradients are computed by algorithmic differentiation through the network and
 all output decodings, so they are exact to machine precision (the two clipped
 transition outputs have zero gradient where the clip is active).
 
+### Directional derivatives
+
+When only the derivative along one direction is needed, for example
+$\partial C_L / \partial \alpha$ inside a Newton iteration on lift,
+`analyze_with_tangent(&input, &direction)` is much cheaper than
+`analyze_with_gradients()`. `direction` is a `bora::Gradient` in the same input
+space as the table above, and the returned `bora::AeroTangent` holds the
+`output` (bitwise identical to `analyze()`) and a `tangent` (`AeroOutput`)
+whose every field is the directional derivative of the corresponding output,
+`tangent.X = sum_k gradient.X[k] * direction[k]`:
+
+```rust
+let mut direction = [0.0; bora::NUM_INPUTS];
+direction[input_index::ALPHA] = 1.0;
+let result = model.analyze_with_tangent(&input, &direction);
+let (cl, dcl_dalpha) = (result.output.cl, result.tangent.cl);
+```
+
+It propagates one direction through the network instead of all 23 (forward
+mode, one tangent alongside each value), and covers the boundary layer outputs
+too. Measured on an Apple M1 Pro (µs per call):
+
+| Model | `analyze` | `analyze_with_tangent` | `analyze_with_gradients` |
+|-------|----------:|-----------------------:|-------------------------:|
+| xxsmall | 4.9 | 9.0 (1.8×) | 56 (11×) |
+| medium | 9.2 | 17.6 (1.9×) | 104 (11×) |
+| xlarge | 27 | 54 (2.0×) | 321 (12×) |
+| xxxlarge | 358 | 701 (2.0×) | 4470 (12×) |
+
+The tangent agrees with the contracted `analyze_with_gradients()` result up to
+rounding. To differentiate the six scalar outputs with respect to all inputs,
+`analyze_scalars_with_gradients()` (below) is cheaper than 23 tangents.
+
 ## Scalar-only analysis
 
 Most design studies only need the six scalar outputs: `cl`, `cd`, `cm`,
@@ -150,7 +183,62 @@ descriptive `Display` message; its variants distinguish unreadable HDF5 files
 (`DataDirNotFound`), inconsistent dimensions (`DimensionMismatch`), invalid
 arguments (`InvalidArgument`), and a singular Kulfan fit (`SingularFit`).
 
-Analysis calls (`analyze`, `analyze_with_gradients`, and their `_scalars`
-counterparts) are infallible and return
+Analysis calls (`analyze`, `analyze_with_gradients`, `analyze_with_tangent`,
+the batched calls, and their `_scalars` counterparts) are infallible and return
 their results directly, so once a model is constructed no further error
 handling is needed.
+
+## Batch analysis
+
+Upstream NeuralFoil evaluates arrays of operating points in one vectorized
+call. The Bora equivalent is `NeuralFoil::analyze_batch`, which analyzes a
+slice of `AeroInput`s (any mix of airfoils and operating conditions) and
+returns one `AeroOutput` per input, in order:
+
+```rust
+use bora::{AeroInput, AeroOutput, BatchWorkspace, ModelSize, NeuralFoil};
+
+let model = NeuralFoil::new(ModelSize::XLarge)?;
+let inputs: Vec<AeroInput> = (0..64)
+    .map(|i| AeroInput { alpha: -4.0 + 0.25 * i as f64, ..AeroInput::default() })
+    .collect();
+let outputs = model.analyze_batch(&inputs);
+
+// In a solver loop: keep the output buffer and workspace across iterations.
+let mut results = vec![AeroOutput::default(); inputs.len()];
+let mut workspace = BatchWorkspace::default();
+model.analyze_batch_into(&inputs, &mut results, &mut workspace);
+
+// Scalar outputs only (no boundary layer), returning `AeroScalars`.
+let scalars = model.analyze_scalars_batch(&inputs);
+```
+
+The batched path pushes blocks of `BATCH_BLOCK_SIZE` (8) network evaluations
+(four points and their alpha-flipped images) through each weight matrix
+together, with many independent multiply-add chains and a vectorized
+activation function, instead of streaming the weights once per point. On
+x86-64 it uses AVX2 and FMA when the CPU has them, like the single-point
+calls. Measured on an Apple M1 Pro (single thread), per-point time for a
+64-point batch:
+
+| Model | `analyze` | `analyze_batch` | Speedup | `analyze_scalars` | `analyze_scalars_batch` | Speedup |
+|-------|----------:|----------------:|--------:|------------------:|------------------------:|--------:|
+| `XXSmall` | 4.9 µs | 2.5 µs | 1.9x | 2.2 µs | 1.1 µs | 2.1x |
+| `XSmall` | 5.9 µs | 2.9 µs | 2.0x | 3.1 µs | 1.5 µs | 2.1x |
+| `Small` | 7.6 µs | 3.8 µs | 2.0x | 4.3 µs | 2.0 µs | 2.1x |
+| `Medium` | 9.2 µs | 4.4 µs | 2.1x | 5.9 µs | 2.6 µs | 2.3x |
+| `Large` | 22.9 µs | 9.9 µs | 2.3x | 16.8 µs | 7.0 µs | 2.4x |
+| `XLarge` | 27.2 µs | 11.8 µs | 2.3x | 21.6 µs | 8.9 µs | 2.4x |
+| `XXLarge` | 84 µs | 34 µs | 2.5x | 72.5 µs | 29.0 µs | 2.5x |
+| `XXXLarge` | 357 µs | 147 µs | 2.4x | 331 µs | 134 µs | 2.5x |
+
+Batches of two points are about 1.1-1.2x faster per point, three points
+1.5-1.9x; a single point costs about the same as `analyze`. Results agree with
+`analyze` (and `analyze_scalars`) to within a few ulps of the network outputs
+(the batched kernel sums in a different order and uses its own vectorizable
+`exp`), and a point's result does not depend on its position in the batch or
+on the other points.
+
+The underlying kernel, `Network::evaluate_batch`, is public: it maps an
+`input_size() x n_points` matrix to an `output_size() x n_points` matrix, both
+row-major with one column per point.

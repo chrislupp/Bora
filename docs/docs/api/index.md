@@ -23,16 +23,22 @@ cargo doc --open --all-features
   or `analyze_scalars_with_gradients(&input)` for the six scalar outputs only
   (much faster when the boundary layer is not needed; see
   [Scalar-only analysis](../guide/concepts.md#scalar-only-analysis)).
+  `analyze_with_tangent(&input, &direction)` gives the directional derivative
+  of every output along one `Gradient`-shaped direction, much cheaper than
+  full gradients (see
+  [Directional derivatives](../guide/concepts.md#directional-derivatives)).
   `model_size()` reports the loaded size.
   Immutable and safe to share across threads after construction.
 - **`Network`** / **`Layer`** — Low-level MLP container: loads HDF5 (`.h5`)
   weight files with `Network::load(path)` or `Network::from_bytes(data)` and
   evaluates the raw network (`evaluate`, or `evaluate_pair` for two inputs in
   one traversal of the weights) with optional forward-mode Jacobian
-  propagation (`evaluate_with_jacobian`). `evaluate_first(x, n, y)` computes
-  only the first `n` outputs, and `evaluate_first_with_gradients(x, n, y, grad)`
-  adds their gradients with respect to the network inputs by reverse-mode
-  differentiation (row-major `n x input_size()`).
+  propagation (`evaluate_with_jacobian`) or single-direction tangent
+  propagation (`evaluate_with_tangent(x, dx, y, dy)`). `evaluate_first(x, n, y)`
+  computes only the first `n` outputs, and
+  `evaluate_first_with_gradients(x, n, y, grad)` adds their gradients with
+  respect to the network inputs by reverse-mode differentiation (row-major
+  `n x input_size()`).
 - **`InputDistribution`** — Training-distribution statistics used for the
   Mahalanobis-based analysis confidence; `InputDistribution::load(path)` or
   `InputDistribution::from_bytes(data)`.
@@ -53,6 +59,28 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
 }
 ```
 
+## Batch Analysis
+
+- **`NeuralFoil::analyze_batch(&inputs)`** — Analyzes a slice of `AeroInput`s
+  and returns a `Vec<AeroOutput>` (one per input, in order). About two times
+  faster per point than a loop over `analyze` for batches of more than a few
+  points; results agree with `analyze` to within a few ulps.
+- **`NeuralFoil::analyze_batch_into(&inputs, &mut outputs, &mut workspace)`**
+  — Same, writing into a caller-provided `&mut [AeroOutput]` and reusing a
+  `BatchWorkspace`, so repeated calls (e.g. once per solver iteration) do not
+  allocate.
+- **`NeuralFoil::analyze_scalars_batch(&inputs)`** /
+  **`analyze_scalars_batch_into(&inputs, &mut outputs, &mut workspace)`** —
+  The batched counterparts of `analyze_scalars`, returning `AeroScalars`; they
+  skip the boundary layer rows of the network's output layer.
+- **`Network::evaluate_batch(x, y, n_points, &mut workspace)`** — Batched
+  network kernel. `x` is `input_size() x n_points` and `y` is
+  `output_size() x n_points`, both row-major with one column per point
+  (input `j` of point `p` is `x[j * n_points + p]`).
+
+See [Batch analysis](../guide/concepts.md#batch-analysis) for an example and
+timings.
+
 ## Data Types
 
 - **`KulfanParameters`** — CST shape description: `upper_weights`,
@@ -72,6 +100,9 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
   The scalar fields of `AeroOutput` (`cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`,
   `analysis_confidence`), their gradients, and the bundle of both returned by
   `analyze_scalars_with_gradients`.
+- **`AeroTangent`** — Bundles `output: AeroOutput` and
+  `tangent: AeroOutput`, the directional derivative of every output field
+  (returned by `analyze_with_tangent`).
 - **`Gradient`** — `[f64; NUM_INPUTS]`; indices named in `bora::input_index`
   (`UPPER_WEIGHTS`, `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`,
   `ALPHA`, `RE`, `N_CRIT`, `XTR_UPPER`, `XTR_LOWER`).
@@ -80,6 +111,8 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
   `as_str()`, `Display`, and `FromStr` convert to and from names like
   `"xlarge"`.
 - **`Point2`** — `[f64; 2]` airfoil coordinate.
+- **`BatchWorkspace`** — Reusable scratch space for the batched calls; grows
+  on first use and can be shared across model sizes.
 
 ## Constants
 
@@ -88,6 +121,8 @@ fn embedded_model() -> bora::Result<NeuralFoil> {
 - **`NUM_BL_POINTS`** (32) — Boundary layer stations per surface.
 - **`NUM_LATENT_INPUTS`** (25), **`NUM_LATENT_OUTPUTS`** (198) — Network
   input and output dimensions.
+- **`BATCH_BLOCK_SIZE`** (8) — Network evaluations the batched kernel
+  processes together.
 
 ## Utilities
 

@@ -53,7 +53,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 - Testing the x86-64 baseline path on an AVX2 machine: set `BORA_DISABLE_AVX2_FMA=1` (hidden switch, read once per process; not public API), e.g. `BORA_DISABLE_AVX2_FMA=1 cargo test --all-features`
 - The network kernels in `src/network.rs` (the `MulAdd` strategies, the 16-accumulator `dot`/`dot2`, the register-accumulated `jacobian_row` with seed counts padded to a multiple of 4, and the `Lanes` kernel-per-type dispatch) are hand-tuned; small rewrites (e.g. selecting a kernel with `if B == 2`, indexing generic `[[f64; K]; B]` accumulators) measured 15-100% slower
 - The reverse-mode kernels `adjoint_rows` (`ADJOINT_ROW_BLOCK` = 4 weight rows per update, up to `MAX_ADJOINT_LANES` = 16 lanes shared across inputs) and `dense_layer_slopes` (values plus swish slopes in one forward traversal) are hand-tuned as well; see the measurements in their doc comments
-- `cargo bench` (`benches/kernels.rs`, std only) times `analyze`, `analyze_with_gradients` and the network passes for every model size; `cargo bench -- medium xlarge` restricts the sizes. Compare against the previous version before and after any kernel change
+- The tangent pass (`dense_layer_tangent`: value and tangent lanes through `dot2`) and the batched kernel (`dense_block`: `BATCH_BLOCK_SIZE` points x 4 hand-unrolled output rows, `exp_vectorizable` for swish) are hand-tuned too: sharing one weight traversal between the original and flipped tangent passes, a 4-vector dot, and a generic `[[f64; B]; R]` accumulator block all measured slower (see their doc comments)
+- `cargo bench` (`benches/kernels.rs`, std only) times the analysis calls (including the tangent and batched ones) and the network passes for every model size; `cargo bench -- medium xlarge` restricts the sizes. Compare against the previous version before and after any kernel change
 
 ## Documentation Site
 

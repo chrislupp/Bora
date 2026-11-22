@@ -229,6 +229,19 @@ pub struct AeroResult {
     pub gradient: AeroGradients,
 }
 
+/// Analysis outputs bundled with their directional derivative along one
+/// direction in user-input space (a Jacobian-vector product), as returned by
+/// [`NeuralFoil::analyze_with_tangent`](crate::NeuralFoil::analyze_with_tangent).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AeroTangent {
+    /// The analysis outputs, identical to
+    /// [`NeuralFoil::analyze`](crate::NeuralFoil::analyze).
+    pub output: AeroOutput,
+    /// Directional derivative of every field of `output` along the requested
+    /// direction: for each output X, `sum_k gradient.X[k] * direction[k]`.
+    pub tangent: AeroOutput,
+}
+
 /// Gradients of the scalar analysis outputs with respect to the user inputs:
 /// the fields of [`AeroGradients`] without the boundary layer gradients.
 #[derive(Debug, Clone, PartialEq, Default)]

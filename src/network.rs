@@ -68,6 +68,59 @@ pub struct InputDistribution {
     inv_cov: Vec<f64>,
 }
 
+/// Number of points (columns) the batched kernel
+/// ([`Network::evaluate_batch`]) pushes through the weight matrices together.
+///
+/// Each output row is accumulated for a block of this many points at once,
+/// four rows at a time, so every weight loaded from memory feeds
+/// `4 * BATCH_BLOCK_SIZE` independent multiply-add chains.
+///
+/// Chosen by measurement on an Apple M1 Pro (single thread, `cargo bench`,
+/// minimum over repetitions): speedup per point of
+/// [`NeuralFoil::analyze_batch_into`](crate::NeuralFoil::analyze_batch_into)
+/// on 64 points over a loop over [`NeuralFoil::analyze`](crate::NeuralFoil::analyze)
+/// (which evaluates both of its network passes in one traversal of the
+/// weights), for block size `B` x output rows per pass `R`:
+///
+/// | model    | B4xR4 | B8xR4 | B16xR4 | B32xR4 | B8xR2 | B16xR2 | B16xR1 | B32xR1 |
+/// |----------|-------|-------|--------|--------|-------|--------|--------|--------|
+/// | xxsmall  | 1.41x | 1.95x | 1.57x  | 1.39x  | 1.54x | 1.95x  | 1.55x  | 0.61x  |
+/// | medium   | 1.45x | 2.06x | 1.66x  | 1.49x  | 1.57x | 2.11x  | 1.58x  | 0.58x  |
+/// | xlarge   | 1.44x | 2.29x | 1.69x  | 1.54x  | 1.52x | 2.34x  | 1.50x  | 0.53x  |
+/// | xxxlarge | 1.38x | 2.42x | 1.73x  | 1.44x  | 1.47x | 2.56x  | 1.46x  | 0.49x  |
+///
+/// Sixteen points by two rows is 2-6% faster than eight by four on full
+/// blocks, but its larger block is mostly padding for short batches: two to
+/// four points ran at 0.6-1.3x `analyze` with 16 x 2 versus 1.1-2.5x with
+/// 8 x 4, so 8 x 4 is kept. The vectorizable activation matters as much as
+/// the blocking, and the four rows must be unrolled by hand: the same kernel
+/// with generic `[[f64; B]; R]` accumulators was ~3x slower.
+pub const BATCH_BLOCK_SIZE: usize = 8;
+
+/// A partial final block with fewer than this many points is evaluated one point
+/// at a time (with the single-point kernel) instead of being padded to a full
+/// [`BATCH_BLOCK_SIZE`] block. One padded block costs about as much as two to
+/// three single-point evaluations.
+const MIN_PADDED_BLOCK_POINTS: usize = 3;
+
+/// Reusable scratch space for [`Network::evaluate_batch`] and the batched
+/// analysis calls
+/// ([`NeuralFoil::analyze_batch_into`](crate::NeuralFoil::analyze_batch_into),
+/// [`NeuralFoil::analyze_scalars_batch_into`](crate::NeuralFoil::analyze_scalars_batch_into)).
+///
+/// Holds the hidden-layer activations of one [`BATCH_BLOCK_SIZE`]-point block.
+/// It grows on first use to fit the widest layer of the network it is used with
+/// and is never shrunk, so a caller that evaluates batches repeatedly (e.g. once
+/// per solver iteration) can keep one workspace and avoid re-allocating it. A
+/// workspace may be used with any network.
+#[derive(Debug, Clone, Default)]
+pub struct BatchWorkspace {
+    /// Block activations, neuron-major: `current[neuron][point]`.
+    current: Vec<[f64; BATCH_BLOCK_SIZE]>,
+    /// Block activations of the layer being computed.
+    next: Vec<[f64; BATCH_BLOCK_SIZE]>,
+}
+
 fn open_file(path: &Path, what: &'static str) -> Result<File> {
     File::open(path).map_err(|source| Error::Open {
         what,
@@ -528,6 +581,165 @@ fn dense_layer_jacobian<const P: usize, M: MulAdd>(
     }
 }
 
+/// Applies one dense layer (and the swish activation, if `activate`) to
+/// `V / 2` inputs and propagates one tangent per input, in a single traversal
+/// of the weights.
+///
+/// The lanes alternate value and tangent: `x[2p]` is input `p` and `x[2p + 1]`
+/// its tangent, and likewise for `y`. The values are bitwise identical to
+/// those of [`dense_layer`]; the tangent of a pre-activation is the weight row
+/// times the input tangent (the bias has none), scaled by the swish slope.
+#[inline(always)]
+fn dense_layer_tangent<const V: usize, L: Lanes<V>, M: MulAdd>(
+    layer: &Layer,
+    activate: bool,
+    x: [&[f64]; V],
+    y: [&mut [f64]; V],
+) {
+    let rows = layer.weights.chunks_exact(layer.cols).zip(&layer.biases);
+    for (r, (w, bias)) in rows.enumerate() {
+        let sums = L::dots::<M>(w, x);
+        for p in 0..V / 2 {
+            let s = bias + sums[2 * p];
+            if activate {
+                let (value, slope) = swish_with_derivative(s);
+                y[2 * p][r] = value;
+                y[2 * p + 1][r] = slope * sums[2 * p + 1];
+            } else {
+                y[2 * p][r] = s;
+                y[2 * p + 1][r] = sums[2 * p + 1];
+            }
+        }
+    }
+}
+
+/// Branch-free `exp(x)` that the compiler can vectorize, unlike `f64::exp`
+/// (a libm call). Accurate to about one ulp (see the
+/// `exp_vectorizable_is_accurate` test: max. relative error on [-700, 700] of
+/// 2.3e-16 with either multiply-add strategy); the argument is clamped to
+/// [-708, 709], so it never returns zero or infinity, which is harmless where
+/// it is used (`1 + exp(-x)`) but makes it unsuitable as a general `exp`.
+///
+/// Uses `exp(x) = 2^n exp(r)` with `n = round(x / ln 2)` and
+/// `|r| <= ln(2) / 2`, a degree-13 Taylor polynomial for `exp(r)`, and builds
+/// `2^n` from its bit pattern. Only multiply-adds and integer bit operations
+/// are used. The reduction `r = (x - n ln2_hi) - n ln2_lo` (Cody-Waite) stays
+/// accurate without FMA: `ln2_hi` has 32 significant bits, so `n * ln2_hi` is
+/// exact for the `|n| <= 1023` that occur, and `x - n * ln2_hi` is exact as
+/// well because the two nearly cancel.
+#[inline(always)]
+fn exp_vectorizable<M: MulAdd>(x: f64) -> f64 {
+    // Adding 1.5 * 2^52 rounds to the nearest integer and leaves that integer
+    // in the low mantissa bits.
+    const ROUNDER: f64 = 6_755_399_441_055_744.0;
+    const LN_2_HI: f64 = 6.931_471_803_691_238e-1;
+    const LN_2_LO: f64 = 1.908_214_929_270_587_7e-10;
+    // 1 / k! for k = 13 down to 0.
+    const INV_FACTORIALS: [f64; 14] = [
+        1.0 / 6_227_020_800.0,
+        1.0 / 479_001_600.0,
+        1.0 / 39_916_800.0,
+        1.0 / 3_628_800.0,
+        1.0 / 362_880.0,
+        1.0 / 40_320.0,
+        1.0 / 5_040.0,
+        1.0 / 720.0,
+        1.0 / 120.0,
+        1.0 / 24.0,
+        1.0 / 6.0,
+        1.0 / 2.0,
+        1.0,
+        1.0,
+    ];
+    let x = x.clamp(-708.0, 709.0);
+    let shifted = M::mul_add(x, std::f64::consts::LOG2_E, ROUNDER);
+    let n = shifted - ROUNDER;
+    let r = M::mul_add(n, -LN_2_LO, M::mul_add(n, -LN_2_HI, x));
+    let mut p = INV_FACTORIALS[0];
+    for &c in &INV_FACTORIALS[1..] {
+        p = M::mul_add(p, r, c);
+    }
+    // The low bits of `shifted` hold n in two's complement; (n + 1023) << 52
+    // is the bit pattern of 2^n for -1022 <= n <= 1023.
+    let scale = f64::from_bits(shifted.to_bits().wrapping_add(1023) << 52);
+    p * scale
+}
+
+/// Applies swish to a block of values with [`exp_vectorizable`]; agrees with
+/// [`swish`] to about one ulp.
+#[inline(always)]
+fn swish_block<const B: usize, M: MulAdd>(values: &mut [f64; B]) {
+    for v in values.iter_mut() {
+        *v /= 1.0 + exp_vectorizable::<M>(-*v);
+    }
+}
+
+/// The first `rows` rows of one dense layer applied to a block of `B` points
+/// stored neuron-major:
+/// `output[i][p] = act(bias[i] + sum_j weight[i][j] * input[j][p])`, with
+/// swish as `act` if `activate`, else the identity.
+///
+/// Output rows are computed four at a time: each step of the inner loop loads
+/// one input row `input[j]` (`B` values) and one weight per output row, and
+/// performs `4 * B` independent multiply-adds, which the compiler vectorizes
+/// across the block.
+///
+/// `input` must have at least `layer.cols` rows and `output` at least `rows`.
+#[inline(always)]
+fn dense_block<const B: usize, M: MulAdd>(
+    layer: &Layer,
+    rows: usize,
+    activate: bool,
+    input: &[[f64; B]],
+    output: &mut [[f64; B]],
+) {
+    let cols = layer.cols;
+    let input = &input[..cols];
+    let output = &mut output[..rows];
+
+    let w_quads = layer.weights[..rows * cols].chunks_exact(4 * cols);
+    let w_rest = w_quads.remainder();
+    let (b_quads, b_rest) = layer.biases[..rows].as_chunks::<4>();
+    let (out_quads, out_rest) = output.as_chunks_mut::<4>();
+    for ((w4, b4), out4) in w_quads.zip(b_quads).zip(out_quads) {
+        let (w0, w123) = w4.split_at(cols);
+        let (w1, w23) = w123.split_at(cols);
+        let (w2, w3) = w23.split_at(cols);
+        let mut a0 = [b4[0]; B];
+        let mut a1 = [b4[1]; B];
+        let mut a2 = [b4[2]; B];
+        let mut a3 = [b4[3]; B];
+        for ((((x, &v0), &v1), &v2), &v3) in input.iter().zip(w0).zip(w1).zip(w2).zip(w3) {
+            for p in 0..B {
+                a0[p] = M::mul_add(v0, x[p], a0[p]);
+                a1[p] = M::mul_add(v1, x[p], a1[p]);
+                a2[p] = M::mul_add(v2, x[p], a2[p]);
+                a3[p] = M::mul_add(v3, x[p], a3[p]);
+            }
+        }
+        if activate {
+            swish_block::<B, M>(&mut a0);
+            swish_block::<B, M>(&mut a1);
+            swish_block::<B, M>(&mut a2);
+            swish_block::<B, M>(&mut a3);
+        }
+        *out4 = [a0, a1, a2, a3];
+    }
+
+    for ((w_row, &bias), out) in w_rest.chunks_exact(cols).zip(b_rest).zip(out_rest) {
+        let mut acc = [bias; B];
+        for (x, &v) in input.iter().zip(w_row) {
+            for p in 0..B {
+                acc[p] = M::mul_add(v, x[p], acc[p]);
+            }
+        }
+        if activate {
+            swish_block::<B, M>(&mut acc);
+        }
+        *out = acc;
+    }
+}
+
 /// Views the first `len` entries of each of the `B` consecutive `stride`-long
 /// lanes of `buf`.
 fn lanes<T, const B: usize>(buf: &[T], stride: usize, len: usize) -> [&[T]; B] {
@@ -637,6 +849,46 @@ impl Pass for JacobianPass<'_> {
             jy,
         } = self;
         network.jacobian_pass::<M>(x, jx, n_seed, y, jy);
+    }
+}
+
+/// [`Network::tangent_pass`] with its arguments.
+struct TangentPass<'a, const V: usize, L> {
+    network: &'a Network,
+    x: [&'a [f64]; V],
+    y: [&'a mut [f64]; V],
+    kernel: PhantomData<L>,
+}
+
+impl<const V: usize, L: Lanes<V>> Pass for TangentPass<'_, V, L> {
+    #[inline(always)]
+    fn run<M: MulAdd>(self) {
+        self.network.tangent_pass::<V, L, M>(self.x, self.y);
+    }
+}
+
+/// [`Network::batch_pass`] with its arguments.
+struct BatchPass<'a> {
+    network: &'a Network,
+    x: &'a [f64],
+    n_points: usize,
+    n_out: usize,
+    y: &'a mut [f64],
+    workspace: &'a mut BatchWorkspace,
+}
+
+impl Pass for BatchPass<'_> {
+    #[inline(always)]
+    fn run<M: MulAdd>(self) {
+        let Self {
+            network,
+            x,
+            n_points,
+            n_out,
+            y,
+            workspace,
+        } = self;
+        network.batch_pass::<M>(x, n_points, n_out, y, workspace);
     }
 }
 
@@ -814,6 +1066,102 @@ impl Network {
         });
     }
 
+    /// Evaluates the network and propagates a single input tangent (a
+    /// Jacobian-vector product).
+    ///
+    /// Computes y = net(x) and dy = d(net)/dx * dx via forward-mode
+    /// differentiation along the one direction `dx`. Equivalent to
+    /// [`evaluate_with_jacobian`](Self::evaluate_with_jacobian) with
+    /// `n_seed = 1` up to rounding, but each weight row is loaded once for
+    /// both the value and the tangent (see [`evaluate_pair`](Self::evaluate_pair)).
+    ///
+    /// - `dx`: input tangent (`input_size()` entries).
+    /// - `y`: output vector (`output_size()` entries), overwritten; bitwise
+    ///   identical to [`evaluate`](Self::evaluate).
+    /// - `dy`: output tangent (`output_size()` entries), overwritten.
+    ///
+    /// # Panics
+    ///
+    /// If `x` or `dx` is shorter than [`input_size`](Self::input_size), or `y`
+    /// or `dy` is shorter than [`output_size`](Self::output_size).
+    pub fn evaluate_with_tangent(&self, x: &[f64], dx: &[f64], y: &mut [f64], dy: &mut [f64]) {
+        dispatch(TangentPass::<2, TwoInputs> {
+            network: self,
+            x: [x, dx],
+            y: [y, dy],
+            kernel: PhantomData,
+        });
+    }
+
+    /// Evaluates the network for a batch of `n_points` points at once.
+    ///
+    /// Equivalent to calling [`evaluate`](Self::evaluate) on every point, but
+    /// pushes blocks of [`BATCH_BLOCK_SIZE`] points through each weight matrix
+    /// together, which is faster per point for batches of more than a few
+    /// points. Results agree with [`evaluate`](Self::evaluate) to a few ulps,
+    /// not bit for bit: the batched kernel sums in a different order and
+    /// evaluates the activation with a vectorizable `exp`. A point's result
+    /// does not depend on the other points in the batch beyond that rounding
+    /// level.
+    ///
+    /// Layout: matrices with one column per point, stored row-major
+    /// (feature-major):
+    ///
+    /// - `x`: `input_size() x n_points`; input `j` of point `p` is
+    ///   `x[j * n_points + p]`.
+    /// - `y`: `output_size() x n_points`, overwritten; output `i` of point `p`
+    ///   is `y[i * n_points + p]`.
+    ///
+    /// Points are processed in blocks of [`BATCH_BLOCK_SIZE`] consecutive
+    /// columns. A partial final block is zero-padded (the padding is discarded)
+    /// unless it has only one or two points, which are evaluated one at a time
+    /// with the single-point kernel (bitwise identical to `evaluate`).
+    /// `workspace` holds the block activations; it is grown on first use and
+    /// can be reused across calls to avoid allocating.
+    ///
+    /// # Panics
+    ///
+    /// If `x` is shorter than `input_size() * n_points` or `y` is shorter than
+    /// `output_size() * n_points`.
+    pub fn evaluate_batch(
+        &self,
+        x: &[f64],
+        y: &mut [f64],
+        n_points: usize,
+        workspace: &mut BatchWorkspace,
+    ) {
+        dispatch(BatchPass {
+            network: self,
+            x,
+            n_points,
+            n_out: self.output_size(),
+            y,
+            workspace,
+        });
+    }
+
+    /// [`evaluate_batch`](Self::evaluate_batch) computing only the first
+    /// `n_outputs` outputs of every point (skipping the remaining rows of the
+    /// output layer); `y` is `n_outputs x n_points`, and its entries agree with
+    /// the corresponding ones of `evaluate_batch` bit for bit.
+    pub(crate) fn evaluate_first_batch(
+        &self,
+        x: &[f64],
+        n_outputs: usize,
+        y: &mut [f64],
+        n_points: usize,
+        workspace: &mut BatchWorkspace,
+    ) {
+        dispatch(BatchPass {
+            network: self,
+            x,
+            n_points,
+            n_out: n_outputs,
+            y,
+            workspace,
+        });
+    }
+
     /// The widest layer input or output, i.e. the activation buffer size.
     fn max_width(&self) -> usize {
         self.layers
@@ -864,6 +1212,154 @@ impl Network {
         }
         for (lane, y) in cur.chunks_exact(width).zip(y) {
             y.copy_from_slice(&lane[..n_out]);
+        }
+    }
+
+    /// Forward-mode pass for `V / 2` inputs with one tangent each, in one
+    /// traversal of the weights; lanes alternate value and tangent (see
+    /// [`dense_layer_tangent`]).
+    #[inline(always)]
+    fn tangent_pass<const V: usize, L: Lanes<V>, M: MulAdd>(
+        &self,
+        x: [&[f64]; V],
+        y: [&mut [f64]; V],
+    ) {
+        let (n_in, n_out, width) = (self.input_size(), self.output_size(), self.max_width());
+        let x = x.map(|x| &x[..n_in]);
+        let y = y.map(|y| &mut y[..n_out]);
+        if self.layers.is_empty() {
+            return;
+        }
+        // One allocation: two halves (current and next layer), each holding
+        // V lanes of `width` entries.
+        let mut buf = vec![0.0; 2 * V * width];
+        let (mut cur, mut next) = buf.split_at_mut(V * width);
+        for (lane, x) in cur.chunks_exact_mut(width).zip(x) {
+            lane[..n_in].copy_from_slice(x);
+        }
+        for (l, layer) in self.layers.iter().enumerate() {
+            let activate = l + 1 < self.layers.len();
+            dense_layer_tangent::<V, L, M>(
+                layer,
+                activate,
+                lanes(cur, width, layer.cols),
+                lanes_mut(next, width, layer.rows),
+            );
+            std::mem::swap(&mut cur, &mut next);
+        }
+        for (lane, y) in cur.chunks_exact(width).zip(y) {
+            y.copy_from_slice(&lane[..n_out]);
+        }
+    }
+
+    /// Batched forward pass over feature-major `x` (`input_size() x
+    /// n_points`), writing the first `n_out` outputs of every point to `y`
+    /// (`n_out x n_points`); see [`evaluate_batch`](Self::evaluate_batch).
+    #[inline(always)]
+    fn batch_pass<M: MulAdd>(
+        &self,
+        x: &[f64],
+        n_points: usize,
+        n_out: usize,
+        y: &mut [f64],
+        workspace: &mut BatchWorkspace,
+    ) {
+        const B: usize = BATCH_BLOCK_SIZE;
+        let (n_in, width) = (self.input_size(), self.max_width());
+        assert!(
+            n_out <= self.output_size(),
+            "requested {n_out} outputs of a network with {}",
+            self.output_size()
+        );
+        let x = &x[..n_in * n_points];
+        let y = &mut y[..n_out * n_points];
+        if n_points == 0 || self.layers.is_empty() {
+            return;
+        }
+        for buffer in [&mut workspace.current, &mut workspace.next] {
+            if buffer.len() < width {
+                buffer.resize(width, [0.0; B]);
+            }
+        }
+
+        let last = self.layers.len() - 1;
+        let mut start = 0;
+        while start < n_points {
+            let count = B.min(n_points - start);
+            if count == 2 {
+                // Both columns share one traversal of the weights, as in
+                // `evaluate_pair` (a single point of `analyze_batch` is one
+                // such column pair).
+                self.evaluate_columns::<2, TwoInputs, M>(x, n_points, start, n_out, y, workspace);
+            } else if count < MIN_PADDED_BLOCK_POINTS {
+                self.evaluate_columns::<1, OneInput, M>(x, n_points, start, n_out, y, workspace);
+            } else {
+                // Gather the block's inputs (zero-padding unused lanes).
+                for (j, row) in workspace.current[..n_in].iter_mut().enumerate() {
+                    *row = [0.0; B];
+                    row[..count].copy_from_slice(&x[j * n_points + start..][..count]);
+                }
+                for (l, layer) in self.layers.iter().enumerate() {
+                    let rows = if l == last { n_out } else { layer.rows };
+                    dense_block::<B, M>(
+                        layer,
+                        rows,
+                        l != last,
+                        &workspace.current,
+                        &mut workspace.next,
+                    );
+                    std::mem::swap(&mut workspace.current, &mut workspace.next);
+                }
+                for (i, row) in workspace.current[..n_out].iter().enumerate() {
+                    y[i * n_points + start..][..count].copy_from_slice(&row[..count]);
+                }
+            }
+            start += count;
+        }
+    }
+
+    /// Evaluates the first `n_out` outputs of the `C` columns starting at
+    /// `start` of a feature-major batch (see
+    /// [`evaluate_batch`](Self::evaluate_batch)) with the single-point kernels,
+    /// performing the same operations as [`evaluate`](Self::evaluate) (and
+    /// [`evaluate_pair`](Self::evaluate_pair)) but using `workspace` instead of
+    /// allocating.
+    #[inline(always)]
+    fn evaluate_columns<const C: usize, L: Lanes<C>, M: MulAdd>(
+        &self,
+        x: &[f64],
+        n_points: usize,
+        start: usize,
+        n_out: usize,
+        y: &mut [f64],
+        workspace: &mut BatchWorkspace,
+    ) {
+        // The workspace holds BATCH_BLOCK_SIZE >= C lanes of `width` entries.
+        let width = self.max_width();
+        let mut cur = workspace.current.as_flattened_mut();
+        let mut next = workspace.next.as_flattened_mut();
+        let n_in = self.input_size();
+        for (c, lane) in cur.chunks_exact_mut(width).take(C).enumerate() {
+            for (j, value) in lane[..n_in].iter_mut().enumerate() {
+                *value = x[j * n_points + start + c];
+            }
+        }
+        let last = self.layers.len() - 1;
+        for (l, layer) in self.layers.iter().enumerate() {
+            let rows = if l == last { n_out } else { layer.rows };
+            dense_layer::<C, L, M>(
+                layer,
+                rows,
+                l != last,
+                lanes(cur, width, layer.cols),
+                lanes_mut(next, width, rows),
+            );
+            std::mem::swap(&mut cur, &mut next);
+        }
+        for (c, lane) in cur.chunks_exact(width).take(C).enumerate() {
+            for (i, value) in lane[..n_out].iter().enumerate() {
+                y[i * n_points + start + c] = *value;
+            }
         }
     }
 
@@ -1257,6 +1753,23 @@ impl InputDistribution {
     pub fn size(&self) -> usize {
         self.mean.len()
     }
+
+    /// Same value as [`squared_mahalanobis`](Self::squared_mahalanobis), bit
+    /// for bit (identical operations in identical order), without allocating:
+    /// the centered offsets are recomputed per row instead of being stored.
+    pub(crate) fn squared_mahalanobis_unbuffered(&self, x: &[f64]) -> f64 {
+        let n = self.size();
+        let x = &x[..n];
+        let centered = |j: usize| x[j] - self.mean[j];
+        self.inv_cov
+            .chunks_exact(n)
+            .enumerate()
+            .map(|(i, row)| {
+                let weighted: f64 = row.iter().enumerate().map(|(j, s)| s * centered(j)).sum();
+                centered(i) * weighted
+            })
+            .sum()
+    }
 }
 
 #[cfg(test)]
@@ -1294,6 +1807,64 @@ mod tests {
         network.value_pass::<1, OneInput, Unfused>([&x], 5, [&mut unfused]);
         for (a, b) in fused.iter().zip(&unfused) {
             assert!((a - b).abs() <= 1e-12 * a.abs().max(1.0), "{a} vs {b}");
+        }
+    }
+
+    /// Max. relative error of [`exp_vectorizable`] against `f64::exp` over a
+    /// dense sweep of [-700, 700].
+    fn exp_vectorizable_max_error<M: MulAdd>() -> f64 {
+        const STEPS: i32 = 2_000_000;
+        (-STEPS..=STEPS)
+            .map(|i| {
+                // Irrational step offset, so the sweep does not only hit
+                // multiples of simple fractions of ln 2.
+                let x = 700.0 * f64::from(i) / f64::from(STEPS) + 1e-3 * std::f64::consts::SQRT_2;
+                let x = x.clamp(-700.0, 700.0);
+                let exact = x.exp();
+                ((exp_vectorizable::<M>(x) - exact) / exact).abs()
+            })
+            .fold(0.0, f64::max)
+    }
+
+    /// The vectorizable `exp` of the batched kernel is accurate to about one
+    /// ulp with either multiply-add strategy: without FMA, its Cody-Waite
+    /// reduction still forms `n * ln2_hi` exactly.
+    #[test]
+    fn exp_vectorizable_is_accurate() {
+        let fused = exp_vectorizable_max_error::<Fused>();
+        let unfused = exp_vectorizable_max_error::<Unfused>();
+        println!("exp_vectorizable max. relative error: fused {fused:e}, unfused {unfused:e}");
+        assert!(fused < 4.0 * f64::EPSILON, "fused: {fused:e}");
+        assert!(unfused < 4.0 * f64::EPSILON, "unfused: {unfused:e}");
+        // Clamped arguments stay finite and positive.
+        for x in [-1e6, -745.0, 710.0, 1e6] {
+            let v = exp_vectorizable::<Baseline>(x);
+            assert!(v.is_finite() && v > 0.0, "{x}: {v}");
+        }
+    }
+
+    /// The batched kernel agrees with the single-point kernel for both
+    /// multiply-add strategies (one of which is not the baseline of this
+    /// build).
+    #[test]
+    fn batch_strategies_agree() {
+        let network = test_network();
+        let n = BATCH_BLOCK_SIZE + 5;
+        let x: Vec<f64> = (0..7 * n)
+            .map(|i| ((i * 37 % 23) as f64 - 11.0) / 7.0)
+            .collect();
+        for check in [Network::batch_pass::<Fused>, Network::batch_pass::<Unfused>] {
+            let mut y = vec![0.0; 5 * n];
+            check(&network, &x, n, 5, &mut y, &mut BatchWorkspace::default());
+            for p in 0..n {
+                let point: Vec<f64> = (0..7).map(|j| x[j * n + p]).collect();
+                let mut expected = [0.0; 5];
+                network.value_pass::<1, OneInput, Unfused>([&point], 5, [&mut expected]);
+                for (i, e) in expected.iter().enumerate() {
+                    let a = y[i * n + p];
+                    assert!((a - e).abs() <= 1e-12 * e.abs().max(1.0), "{a} vs {e}");
+                }
+            }
         }
     }
 

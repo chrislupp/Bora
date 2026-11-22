@@ -93,6 +93,13 @@ They return the same scalar values, and the gradient version is about 4-8x
 faster than `analyze_with_gradients()`. See
 [Scalar-only analysis](../guide/concepts.md#scalar-only-analysis).
 
+For the derivative along a single input direction (for example d/d(alpha) of
+every output), `analyze_with_tangent()` is much cheaper than full gradients;
+see [Directional derivatives](../guide/concepts.md#directional-derivatives).
+To analyze many points at once, `analyze_batch()` and `analyze_scalars_batch()`
+are faster per point than a loop; see
+[Batch analysis](../guide/concepts.md#batch-analysis).
+
 ### 5. Build and Run
 
 ```bash
