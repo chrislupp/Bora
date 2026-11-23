@@ -1,5 +1,5 @@
 [package]
-name = "bora"
+name = "bora-foil"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
@@ -7,9 +7,19 @@ description = "A port of NeuralFoil with analytic gradients"
 authors = ["Christopher A. Lupp"]
 license = "Apache-2.0"
 repository = "https://github.com/chrislupp/Bora"
+homepage = "https://chrislupp.github.io/Bora/"
+documentation = "https://docs.rs/bora-foil"
 readme = "README.md"
 keywords = ["airfoil", "aerodynamics", "neuralfoil", "optimization"]
 categories = ["science", "simulation"]
+# Keep the published crate small (crates.io caps uploads at 10 MB; the weights
+# alone are ~7.7 MB): the docs site, CI config, and maintainer scripts stay in git.
+exclude = ["/docs", "/.github", "/scripts", "/CLAUDE.md"]
+
+# Published as `bora-foil` (`bora` is taken on crates.io); the library keeps the
+# name `bora`, so dependents still write `use bora::...`.
+[lib]
+name = "bora"
 
 [features]
 default = []

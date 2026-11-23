@@ -147,6 +147,13 @@ Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
 5. Creates a signed commit and annotated tag
 6. Pushes to `main` and creates a GitHub Release
 
+### Publish Workflow (`.github/workflows/publish.yml`)
+Publishes to crates.io when a stable GitHub Release is published (pre-releases are skipped,
+since their Cargo.toml version has no qualifier); rerun manually with `workflow_dispatch` and a
+tag. Uses crates.io trusted publishing (OIDC, `crates-io` environment), no token secret. The
+package is `bora-foil` on crates.io (`bora` is taken) with `[lib] name = "bora"`; keep the
+`.crate` under the 10 MB upload cap (`cargo package --list`, `exclude` in `Cargo.toml`).
+
 **Requirements**: A PAT with `repo` scope stored as `RELEASE_TOKEN` in Actions secrets.
 
 ### Changelog

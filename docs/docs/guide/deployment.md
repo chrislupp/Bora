@@ -38,8 +38,8 @@ the product of NeuralFoil's training and are distributed under its MIT license
 `NeuralFoil::with_data_dir(size, dir)` skips the search and uses the directory
 you pass.
 
-The second rule is what makes a plain git dependency work with no
-configuration: the path points into Cargo's checkout. It also means a binary
+The second rule is what makes a plain crates.io (or git) dependency work with
+no configuration: the path points into Cargo's copy of the crate. It also means a binary
 copied to another machine will not find its weights, because that path does
 not exist there. For anything you deploy, choose one of the following.
 

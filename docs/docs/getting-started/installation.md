@@ -22,27 +22,29 @@ rustc --version
 
 ## Add Bora to a project
 
-Bora is not published on crates.io. Add it as a git dependency in your
-`Cargo.toml`:
+Bora is published on crates.io as `bora-foil` (the name `bora` belongs to an
+unrelated crate). Add it to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bora = { git = "https://github.com/chrislupp/Bora" }
+bora-foil = "0.1"
 ```
+
+The library keeps the name `bora`, so your code still writes `use bora::...`.
 
 The [Philote discipline](../guide/philote.md) is behind a Cargo feature:
 
 ```toml
 [dependencies]
-bora = { git = "https://github.com/chrislupp/Bora", features = ["philote"] }
+bora-foil = { version = "0.1", features = ["philote"] }
 ```
 
 | Feature | Default | Adds |
 |---------|---------|------|
 | `philote` | off | `bora::philote::BoraDiscipline` and the `bora_server` gRPC executable |
 
-Cargo checks the repository out into its own cache, and Bora finds the weight
-files there without any configuration. If you later ship a binary to another
+The weight files ship inside the crate, and Bora finds them in Cargo's
+cache without any configuration. If you later ship a binary to another
 machine, read [Weights and deployment](../guide/deployment.md).
 
 ## Build from source
