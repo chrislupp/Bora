@@ -50,9 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confidence, network sizes, weights and deployment, Philote discipline, "How NeuralFoil
   works", accuracy and limits, polar sweep and references pages, with the NeuralFoil paper and
   documentation cited where they are drawn on
+- `publish.yml` workflow: publishes each stable release to crates.io with trusted publishing
+  (pre-releases are skipped; the first publish uses a temporary `CARGO_REGISTRY_TOKEN` secret)
 
 ### Changed
 
+- The package is named `bora-foil` (`bora` is taken on crates.io); the library is still
+  imported as `bora`. The published crate leaves out `docs/`, `.github/`, `scripts/` and
+  `CLAUDE.md`
 - Faster network kernels: 16-accumulator dot products, a register-accumulated forward-mode
   Jacobian kernel (seed counts up to 32 padded to a multiple of 4), one sigmoid evaluation per
   neuron for swish and its derivative, and one buffer allocation per pass instead of one per

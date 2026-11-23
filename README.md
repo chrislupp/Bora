@@ -50,10 +50,12 @@ fn main() -> bora::Result<()> {
 
 Add Bora to your project with:
 
-```toml
-[dependencies]
-bora = { git = "https://github.com/chrislupp/Bora" }
+```bash
+cargo add bora-foil
 ```
+
+The crate is published as `bora-foil`, but the library is still imported as
+`bora` (`use bora::...`).
 
 See `examples/example.rs` for basic usage, `examples/polar.rs` for a lift curve
 and drag polar, and `examples/optimize_airfoil.rs` for a full gradient-based
