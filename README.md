@@ -50,9 +50,8 @@ fn main() -> bora::Result<()> {
 
 Add Bora to your project with:
 
-```toml
-[dependencies]
-bora-foil = "0.1"
+```bash
+cargo add bora-foil
 ```
 
 The crate is published as `bora-foil`, but the library is still imported as

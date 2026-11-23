@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   works", accuracy and limits, polar sweep and references pages, with the NeuralFoil paper and
   documentation cited where they are drawn on
 - `publish.yml` workflow: publishes each stable release to crates.io with trusted publishing
-  (pre-releases are skipped)
+  (pre-releases are skipped; the first publish uses a temporary `CARGO_REGISTRY_TOKEN` secret)
 
 ### Changed
 

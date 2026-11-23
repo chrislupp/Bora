@@ -4,9 +4,14 @@ name: Publish to crates.io
 # Pre-releases are skipped: the release workflow leaves the pre-release qualifier
 # out of Cargo.toml, so publishing one would claim the final version number.
 #
-# Authentication uses crates.io trusted publishing (OIDC); no token is stored.
-# One-time setup on crates.io (crate settings -> Trusted Publishing):
-#   repository: chrislupp/Bora, workflow: publish.yml, environment: crates-io
+# Authentication uses crates.io trusted publishing (OIDC). crates.io only offers it
+# for crates that already exist, so the very first publish uses an API token:
+#   1. Before the first release, store a crates.io API token (scope: publish-new,
+#      publish-update) as the CARGO_REGISTRY_TOKEN secret of the crates-io environment.
+#   2. After it publishes, add a trusted publisher on crates.io (crate settings ->
+#      Trusted Publishing: repository chrislupp/Bora, workflow publish.yml,
+#      environment crates-io), then delete the secret and revoke the token.
+# While the secret exists it is used; once removed, the OIDC exchange takes over.
 
 on:
   release:
@@ -49,11 +54,26 @@ jobs:
     - name: Test
       run: cargo test --all-features
 
+    # Environment secrets are only visible inside the job, so check for the
+    # bootstrap token in a step.
+    - name: Check for a bootstrap token
+      id: bootstrap
+      env:
+        TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: |
+        if [ -n "$TOKEN" ]; then
+          echo "::notice::Using the CARGO_REGISTRY_TOKEN secret; delete it once trusted publishing is set up."
+          echo "token=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "token=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Authenticate with crates.io
+      if: steps.bootstrap.outputs.token != 'true'
       id: auth
       uses: rust-lang/crates-io-auth-action@v1
 
     - name: Publish
       run: cargo publish
       env:
-        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}

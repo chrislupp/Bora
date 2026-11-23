@@ -23,20 +23,18 @@ rustc --version
 ## Add Bora to a project
 
 Bora is published on crates.io as `bora-foil` (the name `bora` belongs to an
-unrelated crate). Add it to your `Cargo.toml`:
+unrelated crate). Add it to your project:
 
-```toml
-[dependencies]
-bora-foil = "0.1"
+```bash
+cargo add bora-foil
 ```
 
 The library keeps the name `bora`, so your code still writes `use bora::...`.
 
 The [Philote discipline](../guide/philote.md) is behind a Cargo feature:
 
-```toml
-[dependencies]
-bora-foil = { version = "0.1", features = ["philote"] }
+```bash
+cargo add bora-foil --features philote
 ```
 
 | Feature | Default | Adds |
