@@ -3,9 +3,9 @@ import { bernstein, classFunction, leadingEdgeMode } from "./kulfan";
 import { Chart, Sheet, U, linear, pathFrom, type Point } from "./plot";
 
 // One small square is 0.02 chord across and 0.005 chord up.
-const W = 56 * U;
+const W = 62 * U;
 const H = 39 * U;
-const box = { left: 4 * U, right: 54 * U, top: 2 * U, bottom: 34 * U };
+const box = { left: 10 * U, right: 60 * U, top: 2 * U, bottom: 34 * U };
 const x = linear(0, 1, box.left, box.right);
 const y = linear(0, 0.16, box.bottom, box.top);
 
@@ -21,7 +21,7 @@ const peak = (k: number): Point =>
 export default function KulfanModes(): ReactNode {
     return (
         <figure className="bora-figure">
-            <div className="bora-plate">
+            <div className="bora-panel">
                 <svg
                     className="bora-plot"
                     viewBox={`0 0 ${W} ${H}`}
@@ -38,10 +38,8 @@ export default function KulfanModes(): ReactNode {
                         xFormat={(v) => (v === 0 ? "0" : v.toFixed(1))}
                         yFormat={(v) => (v === 0 ? "0" : v.toFixed(2))}
                         xTitle="x/c"
+                        yTitle="y/c for unit weight"
                     />
-                    <text x={box.right - 8} y={box.top + 20} textAnchor="end">
-                        y/c for unit weight
-                    </text>
                     {Array.from({ length: 8 }, (_, k) => (
                         <path key={k} className="line" d={pathFrom(mode(k))} />
                     ))}

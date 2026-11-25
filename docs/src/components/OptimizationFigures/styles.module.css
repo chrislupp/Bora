@@ -1,0 +1,4 @@
+/* Charts that share a figure are stacked, each at the full column width. */
+.stack > svg + svg {
+    border-top: var(--bora-rule-heavy);
+}

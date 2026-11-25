@@ -127,5 +127,5 @@ and how to use it as an optimization constraint.
 
 - [Inputs and outputs](../guide/analysis.md) for every field and its units.
 - [Polar sweep](../examples/polar.mdx) for a lift curve and drag polar.
-- [Airfoil optimization](../examples/optimization.mdx) for a complete
-  gradient-based design loop.
+- [Multipoint optimization](../examples/openmdao.mdx) for a
+  complete gradient-based design problem.

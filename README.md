@@ -58,8 +58,8 @@ The crate is published as `bora-foil`, but the library is still imported as
 `bora` (`use bora::...`).
 
 See `examples/example.rs` for basic usage, `examples/polar.rs` for a lift curve
-and drag polar, and `examples/optimize_airfoil.rs` for a full gradient-based
-drag minimization at fixed lift. The
+and drag polar, and `examples/openmdao/optimize_daedalus.py` for a multipoint
+airfoil optimization with OpenMDAO and IPOPT. The
 [documentation](https://chrislupp.github.io/Bora/) covers the model, its
 validity limits, and the API.
 
@@ -84,7 +84,6 @@ cargo test --all-features
 # Run examples
 cargo run --release --example example
 cargo run --release --example polar
-cargo run --release --example optimize_airfoil
 
 # API documentation
 cargo doc --open --all-features
@@ -114,6 +113,15 @@ cargo run --release --features philote --bin bora_server [address]  # default lo
 
 Options: `model_size` (str, default `"xlarge"`), `data_directory` (str), and
 `include_boundary_layer` (bool, default `false`).
+
+`examples/openmdao/optimize_daedalus.py` is a complete client: OpenMDAO and
+IPOPT (via pyOptSparse) solve NeuralFoil's multipoint human-powered-aircraft
+airfoil case with Bora's analytic partials over Philote. It starts the server
+itself:
+
+```bash
+python3 examples/openmdao/optimize_daedalus.py
+```
 
 ## Network Weights
 

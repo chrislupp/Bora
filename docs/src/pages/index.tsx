@@ -47,7 +47,7 @@ const CONTENTS: [id: string, label: string][] = [
     ["background/how-it-works", "How NeuralFoil works"],
     ["background/accuracy-and-limits", "Accuracy and limits"],
     ["examples/polar", "Polar sweep"],
-    ["examples/optimization", "Airfoil optimization"],
+    ["examples/openmdao", "Multipoint optimization"],
     ["api/index", "API overview"],
     ["references", "References"],
 ];
@@ -60,7 +60,7 @@ export default function Home(): ReactNode {
     return (
         <Layout description="Bora is a Rust port of NeuralFoil: airfoil lift, drag, moment and transition in tens of microseconds, with exact analytic gradients.">
             <main className={`bora-book ${styles.page}`}>
-                <PolarFigure variant="sheet" className={styles.plate}>
+                <PolarFigure variant="sheet">
                     <h1>Airfoil characteristics in tens of microseconds, with exact gradients</h1>
                     <p>
                         Bora is a Rust port of Peter Sharpe’s{" "}
@@ -77,7 +77,7 @@ export default function Home(): ReactNode {
 
                 <div className={styles.below}>
                     <p className={styles.margin}>
-                        <strong>Plate 1.</strong> The quickstart section at Reynolds numbers of 0.2
+                        <strong>Figure 1.</strong> The quickstart section at Reynolds numbers of 0.2
                         (circles), 1.0 (triangles) and 5.0 million (squares), computed by Bora with
                         NeuralFoil’s xlarge network. The mark is the quickstart condition, 3° at one
                         million; the heavy line through it is the analytic slope returned with that
@@ -95,7 +95,7 @@ export default function Home(): ReactNode {
                             {QUICKSTART}
                         </CodeBlock>
                         <CodeBlock language="text">{OUTPUT}</CodeBlock>
-                        <p>These are the values at the mark on Plate 1.</p>
+                        <p>These are the values at the mark in Figure 1.</p>
 
                         <h2>What it covers</h2>
                         <ul>

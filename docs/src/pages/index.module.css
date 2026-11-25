@@ -6,7 +6,7 @@
     padding: 2.5rem 3rem 5rem;
 }
 
-/* The plate's caption sits in the margin beside the text it introduces. */
+/* The figure's caption sits in the margin beside the text it introduces. */
 .margin {
     grid-column: 1;
     grid-row: 1 / 3;
@@ -63,7 +63,7 @@
 }
 
 /* Below the page-wide sheet, the page is one column and the words come first:
-   headline and opening, then the plates, then the rest. */
+   headline and opening, then the figure, then the rest. */
 @media (max-width: 1239px) {
     .below {
         grid-template-columns: minmax(0, 46rem) minmax(12rem, 16rem);

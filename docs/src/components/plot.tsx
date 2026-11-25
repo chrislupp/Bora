@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from "react";
 
 /*
- * Shared pieces of the documentation's plates. Every chart is drawn on the
+ * Shared pieces of the documentation's figures. Every chart is drawn on the
  * ruled graph sheet, and its scales are chosen so that the sheet's rulings
  * are the chart's grid: one small square is U units, five make a heavy line.
  * Lettering is set with its baseline just above a ruling, so that it sits
@@ -86,7 +86,13 @@ export function PlotSymbol({
 
 export type Box = { left: number; right: number; top: number; bottom: number };
 
-/** An ink frame on the sheet with numerals at the heavy rulings. */
+/**
+ * Horizontal room the y-axis title needs left of the box: the numerals end
+ * 10 units left of the axis, and the title is set rotated beyond them.
+ */
+export const Y_TITLE_ROOM = 5 * U;
+
+/** The left and bottom axes on the sheet, numbered at the given values and titled. */
 export function Chart({
     box,
     x,
@@ -96,7 +102,7 @@ export function Chart({
     xFormat = String,
     yFormat = String,
     xTitle,
-    title,
+    yTitle,
 }: {
     box: Box;
     x: Scale;
@@ -106,16 +112,15 @@ export function Chart({
     xFormat?: (value: number) => string;
     yFormat?: (value: number) => string;
     xTitle?: ReactNode;
-    title?: ReactNode;
+    yTitle?: ReactNode;
 }): ReactNode {
+    const yTitleX = box.left - Y_TITLE_ROOM + 4;
+    const yTitleY = (box.top + box.bottom) / 2;
     return (
         <g>
-            <rect
+            <path
                 className="frame"
-                x={box.left}
-                y={box.top}
-                width={box.right - box.left}
-                height={box.bottom - box.top}
+                d={`M${box.left} ${box.top} V${box.bottom} H${box.right}`}
             />
             {xTicks.map((t) => (
                 <g key={`x${t}`}>
@@ -138,9 +143,14 @@ export function Chart({
                     {xTitle}
                 </text>
             )}
-            {title && (
-                <text x={box.left + 8} y={box.top + 2 * U - 2}>
-                    {title}
+            {yTitle && (
+                <text
+                    x={yTitleX}
+                    y={yTitleY}
+                    textAnchor="middle"
+                    transform={`rotate(-90 ${yTitleX} ${yTitleY})`}
+                >
+                    {yTitle}
                 </text>
             )}
         </g>

@@ -1,0 +1,6 @@
+# Python side of examples/openmdao/optimize_daedalus.py.
+# pyOptSparse with IPOPT is also required; install it from conda-forge
+# (`conda install -c conda-forge pyoptsparse`), which builds it against IPOPT.
+numpy
+openmdao>=3.35
+philote-mdo>=0.7

@@ -160,7 +160,7 @@ Independent checks run in the test suite:
 
 ## Using the gradients in an optimizer
 
-[Airfoil optimization](../examples/optimization.mdx) is a complete example. The
+When driving Bora from Rust, the
 pattern is to build the objective from the outputs and assemble its gradient
 from the corresponding rows by the chain rule:
 

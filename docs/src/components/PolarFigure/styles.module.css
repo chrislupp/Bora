@@ -10,18 +10,18 @@
     display: none;
 }
 
-/* ── Plates: the form that fits a reading column or a narrow window ── */
+/* ── Panels: the form that fits a reading column or a narrow window ── */
 
-.plates {
+.panels {
     display: grid;
-    grid-template-columns: 30fr 26fr;
+    grid-template-columns: 33fr 29fr;
 }
 
-.plates > svg {
+.panels > svg {
     border-top: var(--bora-rule-heavy);
 }
 
-.plates > .profile {
+.panels > .profile {
     grid-column: 1 / -1;
     border-top: 0;
 }
@@ -161,7 +161,7 @@
     border-bottom: var(--bora-rule-heavy);
 }
 
-/* ── Sheet: the page-wide plate on the home page ── */
+/* ── Sheet: the page-wide figure on the home page ── */
 
 .sheet {
     margin: 0;
@@ -173,7 +173,7 @@
 }
 
 /* Below the page-wide form the nameplate leads, so the words come first, and
-   the plates keep to the width of a reading column. */
+   the panels keep to the width of a reading column. */
 @media (max-width: 1239px) {
     .sheet .stage {
         display: flex;
@@ -187,7 +187,7 @@
     }
 }
 
-.sheet .plates,
+.sheet .panels,
 .sheet .block {
     max-width: 48rem;
 }
@@ -238,7 +238,7 @@
         display: block;
     }
 
-    .sheet .plates {
+    .sheet .panels {
         display: none;
     }
 
@@ -266,16 +266,16 @@
 }
 
 @media (max-width: 560px) {
-    /* On a phone the plates stack, and both charts keep one scale. */
-    .plates {
+    /* On a phone the panels stack, and both charts keep one scale. */
+    .panels {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .plates > .profile {
+    .panels > .profile {
         display: none;
     }
 
-    .plates > .profileSmall {
+    .panels > .profileSmall {
         display: block;
     }
 
