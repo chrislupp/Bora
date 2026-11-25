@@ -131,7 +131,7 @@ docs/                  # Docusaurus documentation site
 Runs on every push and PR to `main`/`develop`:
 - Formatting check (`cargo fmt`)
 - Clippy (`-D warnings`, all targets and features)
-- Build and test matrix (Ubuntu and macOS, stable and MSRV 1.89)
+- Build and test matrix (Ubuntu, stable and MSRV 1.89)
 
 ### Docs Workflow (`.github/workflows/docs.yml`)
 Deploys documentation to GitHub Pages when changes are pushed to `develop` in:
