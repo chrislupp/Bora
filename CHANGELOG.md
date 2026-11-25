@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Publish workflow: authenticate with crates.io trusted publishing first and fall back to the
+  `CARGO_REGISTRY_TOKEN` secret only if that fails; v0.3.0 failed with 403 because the stale
+  bootstrap token was preferred over trusted publishing
+
 ## [0.3.0] - 2026-11-25
 
 ### Added
