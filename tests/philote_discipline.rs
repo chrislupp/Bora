@@ -34,7 +34,9 @@
 use std::collections::HashMap;
 
 use bora::philote::BoraDiscipline;
-use bora::{AeroInput, Gradient, ModelSize, NUM_BL_POINTS, NeuralFoil, input_index};
+use bora::{
+    AeroInput, CorrectedInput, Gradient, ModelSize, NUM_BL_POINTS, NeuralFoil, input_index,
+};
 use ndarray::{ArrayD, IxDyn};
 use philote_mdo::{ArrayMap, Discipline, ExplicitDiscipline};
 
@@ -196,6 +198,78 @@ async fn options_select_model_and_boundary_layer_outputs() {
     assert_eq!(
         lower_ue_alpha[[7]],
         expected.gradient.lower.ue_over_vinf[7][input_index::ALPHA]
+    );
+}
+
+#[tokio::test]
+async fn corrections_option_adds_mach_and_corrected_outputs() {
+    let mut discipline = BoraDiscipline::new();
+    discipline.initialize().unwrap();
+    let options = HashMap::from([
+        ("model_size".to_string(), serde_json::json!("medium")),
+        ("include_corrections".to_string(), serde_json::json!(true)),
+        (
+            "include_360_deg_effects".to_string(),
+            serde_json::json!(false),
+        ),
+    ]);
+    discipline.set_options(&options).unwrap();
+    discipline.setup().unwrap();
+    discipline.setup_partials().unwrap();
+
+    // Ten inputs (with mach) and ten scalar outputs.
+    assert_eq!(
+        discipline.get_variable_definitions().unwrap().len(),
+        10 + 10
+    );
+    assert_eq!(
+        discipline.get_partials_definitions().unwrap().len(),
+        10 * 10
+    );
+
+    let corrected = CorrectedInput {
+        aero: test_case(),
+        mach: 0.5,
+        control_surfaces: Vec::new(),
+        include_360_deg_effects: false,
+    };
+    let mut inputs = make_inputs(&corrected.aero);
+    inputs.insert(
+        "mach".to_string(),
+        ArrayD::from_shape_vec(IxDyn(&[1]), vec![corrected.mach]).unwrap(),
+    );
+    let outputs = discipline.compute(&inputs).await.unwrap();
+    let partials = discipline.compute_partials(&inputs).await.unwrap();
+
+    let model = NeuralFoil::new(ModelSize::Medium).unwrap();
+    let expected = model.analyze_corrected_with_gradients(&corrected);
+    assert_eq!(outputs["CL"][[0]], expected.output.cl);
+    assert_eq!(outputs["CD"][[0]], expected.output.cd);
+    assert_eq!(outputs["Cpmin"][[0]], expected.output.cpmin);
+    assert_eq!(outputs["mach_crit"][[0]], expected.output.mach_crit);
+    assert_eq!(outputs["mach_dd"][[0]], expected.output.mach_dd);
+    assert!(expected.output.cl > model.analyze(&corrected.aero).cl * 1.1);
+
+    let key = |output: &str, input: &str| (output.to_string(), input.to_string());
+    assert_eq!(
+        partials[&key("CD", "mach")][[0]],
+        expected.gradient.cd[input_index::MACH]
+    );
+    assert_eq!(
+        partials[&key("CL", "alpha")][[0]],
+        expected.gradient.cl[input_index::ALPHA]
+    );
+    assert_eq!(
+        partials[&key("mach_crit", "upper_weights")][[2]],
+        expected.gradient.mach_crit[input_index::UPPER_WEIGHTS + 2]
+    );
+
+    // Without the option there is no Mach input.
+    assert!(
+        discipline
+            .compute(&make_inputs(&corrected.aero))
+            .await
+            .is_err()
     );
 }
 

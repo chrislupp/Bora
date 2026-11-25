@@ -68,44 +68,71 @@ the weights, so fitting it to coordinates is a linear least-squares problem.
 
 ## From coordinates to parameters
 
-`fit_kulfan_parameters` fits the 18 parameters to a list of points:
+`FittedAirfoil` goes from a coordinate file to an analysis:
 
 ```rust
-use bora::{Point2, fit_kulfan_parameters};
+use bora::{FittedAirfoil, ModelSize, NeuralFoil, OperatingPoint};
 
-/// Reads a Selig-format coordinate file: an optional name line, then one
-/// "x y" pair per line.
-fn read_selig_dat(path: &str) -> std::io::Result<Vec<Point2>> {
-    let text = std::fs::read_to_string(path)?;
-    Ok(text
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace().map(str::parse::<f64>);
-            match (fields.next(), fields.next(), fields.next()) {
-                (Some(Ok(x)), Some(Ok(y)), None) => Some([x, y]),
-                _ => None, // name line or blank line
-            }
-        })
-        .collect())
-}
+fn main() -> bora::Result<()> {
+    let airfoil = FittedAirfoil::from_dat_file("my_airfoil.dat")?;
+    println!("{:#?}", airfoil.kulfan);
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let coordinates = read_selig_dat("my_airfoil.dat")?;
-    let kulfan = fit_kulfan_parameters(&coordinates)?;
-    println!("{kulfan:#?}");
+    let model = NeuralFoil::new(ModelSize::XLarge)?;
+    let point = OperatingPoint { alpha: 3.0, re: 1e6, ..OperatingPoint::default() };
+    let aero = model.analyze_airfoil(&airfoil, &point);
+    println!("CL = {:.4}", aero.cl);
     Ok(())
 }
 ```
 
-The fit makes three assumptions about its input. It does not check them, and
-a violation gives a poor fit rather than an error.
+It does three things, each of which is also a function of its own.
+
+1. **Read.** `read_dat_file` (or `parse_dat` for text already in memory) takes
+   every line that holds exactly two numbers as a point and skips the rest, so
+   a name line, blank lines and comments are ignored. Numbers may be separated
+   by spaces, tabs, commas or semicolons.
+2. **Normalize.** `normalize_coordinates` moves the leading edge to $(0, 0)$,
+   scales the chord to 1 and rotates the trailing edge onto the $x$ axis. The
+   trailing edge is the midpoint of the first and last points, and the leading
+   edge is the point farthest from it. The translation, scale factor and
+   rotation are returned with the new coordinates.
+3. **Fit.** `fit_kulfan_parameters` fits the 18 parameters to the normalized
+   points by linear least squares.
+
+These are the steps of NeuralFoil's `get_aero_from_coordinates` and
+`get_aero_from_dat_file` ([Sharpe, 2023](../references.md#neuralfoil-repository)).
+`FittedAirfoil::from_coordinates` does the last two for points you already
+hold.
+
+### Airfoils that are not normalized
+
+Coordinates with built-in incidence, a chord other than 1 or an offset origin
+describe the same section in another frame. `analyze_airfoil` accounts for the
+difference, as upstream does: it adds the rotation to the angle of attack,
+rescales the Reynolds number to the chord (the `re` of the `OperatingPoint` is
+based on the unit length of the coordinates), and moves the moment coefficient
+back to the quarter-chord point of the original airfoil. `FittedAirfoil::input`
+and `FittedAirfoil::transfer_cm` expose the two halves, for use with the other
+analysis calls:
+
+```rust
+let input = airfoil.input(&point);             // an AeroInput
+let result = model.analyze_with_gradients(&input);
+let out = &result.output;
+let cm = airfoil.transfer_cm(out.cl, out.cd, out.cm);
+```
+
+### Fitting directly
+
+`fit_kulfan_parameters` alone makes three assumptions about its input. It does
+not check them, and a violation gives a poor fit rather than an error.
 
 1. **Selig ordering.** Points run from the upper-surface trailing edge, forward
    around the leading edge, and back along the lower surface.
 2. **Normalized chord.** The leading edge is at $(0, 0)$ and the trailing edge
-   at $x = 1$. Bora does not translate, rotate or scale the points. This
-   differs from AeroSandbox, which normalizes first, so normalize before
-   calling if your coordinates are not already in this form.
+   at $x = 1$. The function does not translate, rotate or scale the points;
+   use `normalize_coordinates` or `FittedAirfoil` if yours are not in this
+   form.
 3. **Enough points.** At least 18 are required; real coordinate files have
    far more.
 

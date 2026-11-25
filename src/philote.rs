@@ -45,11 +45,11 @@ use philote_mdo::{
 };
 
 use crate::{
-    AeroInput, AeroScalars, Gradient, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE,
-    NeuralFoil, input_index,
+    AeroInput, AeroScalars, BoundaryLayerData, BoundaryLayerGradients, CorrectedInput, Gradient,
+    ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE, NeuralFoil, input_index,
 };
 
-/// One named discipline input and its slice of the 23-entry gradient vector.
+/// One named discipline input and its slice of the gradient vector.
 struct InputBlock {
     name: &'static str,
     offset: usize,
@@ -104,6 +104,16 @@ const INPUT_BLOCKS: [InputBlock; 9] = [
     },
 ];
 
+/// The Mach number input, present with the `include_corrections` option.
+const MACH_BLOCK: InputBlock = InputBlock {
+    name: "mach",
+    offset: input_index::MACH,
+    size: 1,
+};
+
+/// Outputs that exist only with the `include_corrections` option.
+const CORRECTION_OUTPUTS: [&str; 4] = ["Cpmin", "Cpmin_0", "mach_crit", "mach_dd"];
+
 const SCALAR_OUTPUTS: [&str; 6] = [
     "CL",
     "CD",
@@ -133,12 +143,16 @@ const BL_OUTPUTS: [&str; 6] = [
 ///   - `leading_edge_weight`, `TE_thickness`: Kulfan shape modifiers
 ///   - `alpha` \[deg\], `Re`, `n_crit`, `xtr_upper`, `xtr_lower`: operating
 ///     condition
+///   - `mach` (with the `include_corrections` option): Mach number
 ///
 /// Outputs: `CL`, `CD`, `CM`, `Top_Xtr`, `Bot_Xtr`, `analysis_confidence`, and
 /// (when enabled via the `include_boundary_layer` option) the boundary layer
 /// distributions `upper_theta`, `upper_H`, `upper_ue_over_vinf`,
 /// `lower_theta`, `lower_H`, `lower_ue_over_vinf` at [`NUM_BL_POINTS`]
-/// stations each.
+/// stations each. With `include_corrections`, the coefficients and transition
+/// locations are those of
+/// [`NeuralFoil::analyze_corrected`], and `Cpmin`, `Cpmin_0`, `mach_crit` and
+/// `mach_dd` are added.
 ///
 /// Options:
 ///   - `model_size` (str): network size, one of "xxsmall", "xsmall",
@@ -149,16 +163,37 @@ const BL_OUTPUTS: [&str; 6] = [
 ///     the source-tree `data/` directory)
 ///   - `include_boundary_layer` (bool): expose boundary layer distribution
 ///     outputs and their partials (default false)
+///   - `include_corrections` (bool): add the `mach` input and apply the
+///     compressibility corrections (default false)
+///   - `include_360_deg_effects` (bool): with `include_corrections`, also
+///     blend into the post-stall model at large angles of attack (default
+///     true)
 ///
 /// Partials are row-major `[output_size x input_size]` blocks, with singleton
-/// dimensions dropped.
-#[derive(Default)]
+/// dimensions dropped. The boundary layer does not depend on `mach`, so no
+/// partials are declared for that pair.
 pub struct BoraDiscipline {
     registry: VariableRegistry,
     model: OnceLock<NeuralFoil>,
     model_size: ModelSize,
     data_directory: Option<PathBuf>,
     include_boundary_layer: bool,
+    include_corrections: bool,
+    include_360_deg_effects: bool,
+}
+
+impl Default for BoraDiscipline {
+    fn default() -> Self {
+        Self {
+            registry: VariableRegistry::default(),
+            model: OnceLock::new(),
+            model_size: ModelSize::default(),
+            data_directory: None,
+            include_boundary_layer: false,
+            include_corrections: false,
+            include_360_deg_effects: true,
+        }
+    }
 }
 
 fn config_error(err: crate::Error) -> PhiloteError {
@@ -187,6 +222,34 @@ impl BoraDiscipline {
         }
         let model = self.load_model()?;
         Ok(self.model.get_or_init(|| model))
+    }
+
+    /// The scalar outputs present with the current options.
+    fn scalar_outputs(&self) -> impl Iterator<Item = &'static str> + use<> {
+        let corrections: &[&str] = if self.include_corrections {
+            &CORRECTION_OUTPUTS
+        } else {
+            &[]
+        };
+        SCALAR_OUTPUTS
+            .into_iter()
+            .chain(corrections.iter().copied())
+    }
+
+    /// The inputs that scalar outputs are differentiated with respect to.
+    fn input_blocks(&self) -> impl Iterator<Item = &'static InputBlock> + use<> {
+        INPUT_BLOCKS
+            .iter()
+            .chain(self.include_corrections.then_some(&MACH_BLOCK))
+    }
+
+    fn read_corrected_input(&self, inputs: &ArrayMap) -> Result<CorrectedInput> {
+        Ok(CorrectedInput {
+            aero: read_aero_input(inputs)?,
+            mach: read_scalar(inputs, "mach")?,
+            control_surfaces: Vec::new(),
+            include_360_deg_effects: self.include_360_deg_effects,
+        })
     }
 }
 
@@ -227,9 +290,47 @@ fn array(shape: &[usize], values: Vec<f64>) -> ArrayD<f64> {
     ArrayD::from_shape_vec(IxDyn(shape), values).expect("shape matches value count")
 }
 
+/// Adds the boundary layer distributions of both surfaces to the outputs.
+fn insert_boundary_layer(
+    outputs: &mut ArrayMap,
+    upper: &BoundaryLayerData,
+    lower: &BoundaryLayerData,
+) {
+    let distributions = [
+        ("upper_theta", &upper.theta),
+        ("upper_H", &upper.h),
+        ("upper_ue_over_vinf", &upper.ue_over_vinf),
+        ("lower_theta", &lower.theta),
+        ("lower_H", &lower.h),
+        ("lower_ue_over_vinf", &lower.ue_over_vinf),
+    ];
+    for (name, values) in distributions {
+        outputs.insert(name.to_string(), array(&[NUM_BL_POINTS], values.to_vec()));
+    }
+}
+
+/// Adds the partials of all six boundary layer distributions.
+fn insert_all_bl_partials(
+    partials: &mut PartialMap,
+    upper: &BoundaryLayerGradients,
+    lower: &BoundaryLayerGradients,
+) {
+    insert_bl_partials(partials, "upper_theta", &upper.theta);
+    insert_bl_partials(partials, "upper_H", &upper.h);
+    insert_bl_partials(partials, "upper_ue_over_vinf", &upper.ue_over_vinf);
+    insert_bl_partials(partials, "lower_theta", &lower.theta);
+    insert_bl_partials(partials, "lower_H", &lower.h);
+    insert_bl_partials(partials, "lower_ue_over_vinf", &lower.ue_over_vinf);
+}
+
 /// Copies one scalar output's gradient into its per-input jacobian blocks.
-fn insert_scalar_partials(partials: &mut PartialMap, output: &str, gradient: &Gradient) {
-    for block in &INPUT_BLOCKS {
+fn insert_scalar_partials(
+    partials: &mut PartialMap,
+    output: &str,
+    gradient: &[f64],
+    blocks: impl Iterator<Item = &'static InputBlock>,
+) {
+    for block in blocks {
         let values = gradient[block.offset..block.offset + block.size].to_vec();
         partials.insert(
             (output.to_string(), block.name.to_string()),
@@ -284,7 +385,9 @@ impl Discipline for BoraDiscipline {
     fn initialize(&mut self) -> Result<()> {
         self.add_option("model_size", "str")?;
         self.add_option("data_directory", "str")?;
-        self.add_option("include_boundary_layer", "bool")
+        self.add_option("include_boundary_layer", "bool")?;
+        self.add_option("include_corrections", "bool")?;
+        self.add_option("include_360_deg_effects", "bool")
     }
 
     fn set_options(&mut self, options: &HashMap<String, serde_json::Value>) -> Result<()> {
@@ -296,6 +399,12 @@ impl Discipline for BoraDiscipline {
         }
         if let Some(value) = options.get("include_boundary_layer") {
             self.include_boundary_layer = value.as_bool().unwrap_or(false);
+        }
+        if let Some(value) = options.get("include_corrections") {
+            self.include_corrections = value.as_bool().unwrap_or(false);
+        }
+        if let Some(value) = options.get("include_360_deg_effects") {
+            self.include_360_deg_effects = value.as_bool().unwrap_or(true);
         }
 
         // Rebuild the model eagerly so bad options fail the SetOptions RPC
@@ -314,8 +423,11 @@ impl Discipline for BoraDiscipline {
         self.add_input("n_crit", &[1], "")?;
         self.add_input("xtr_upper", &[1], "")?;
         self.add_input("xtr_lower", &[1], "")?;
+        if self.include_corrections {
+            self.add_input(MACH_BLOCK.name, &[1], "")?;
+        }
 
-        for name in SCALAR_OUTPUTS {
+        for name in self.scalar_outputs() {
             self.add_output(name, &[1], "")?;
         }
         if self.include_boundary_layer {
@@ -332,7 +444,12 @@ impl Discipline for BoraDiscipline {
         } else {
             &[]
         };
-        for output in SCALAR_OUTPUTS.iter().chain(bl_outputs) {
+        for output in self.scalar_outputs() {
+            for block in self.input_blocks() {
+                self.declare_partials(output, block.name)?;
+            }
+        }
+        for output in bl_outputs {
             for block in &INPUT_BLOCKS {
                 self.declare_partials(output, block.name)?;
             }
@@ -345,6 +462,30 @@ impl Discipline for BoraDiscipline {
 impl ExplicitDiscipline for BoraDiscipline {
     async fn compute(&self, inputs: &ArrayMap) -> Result<ArrayMap> {
         let model = self.model()?;
+        let mut outputs = HashMap::new();
+        if self.include_corrections {
+            let aero = model.analyze_corrected(&self.read_corrected_input(inputs)?);
+            let values = [
+                ("CL", aero.cl),
+                ("CD", aero.cd),
+                ("CM", aero.cm),
+                ("Top_Xtr", aero.top_xtr),
+                ("Bot_Xtr", aero.bot_xtr),
+                ("analysis_confidence", aero.analysis_confidence),
+                ("Cpmin", aero.cpmin),
+                ("Cpmin_0", aero.cpmin_0),
+                ("mach_crit", aero.mach_crit),
+                ("mach_dd", aero.mach_dd),
+            ];
+            for (name, value) in values {
+                outputs.insert(name.to_string(), array(&[1], vec![value]));
+            }
+            if self.include_boundary_layer {
+                insert_boundary_layer(&mut outputs, &aero.upper, &aero.lower);
+            }
+            return Ok(outputs);
+        }
+
         let input = read_aero_input(inputs)?;
 
         // Without boundary layer outputs, the scalar path skips decoding them.
@@ -363,7 +504,6 @@ impl ExplicitDiscipline for BoraDiscipline {
             (model.analyze_scalars(&input), None)
         };
 
-        let mut outputs = HashMap::new();
         let values = [
             ("CL", scalars.cl),
             ("CD", scalars.cd),
@@ -377,70 +517,72 @@ impl ExplicitDiscipline for BoraDiscipline {
         }
 
         if let Some((upper, lower)) = boundary_layer {
-            let distributions = [
-                ("upper_theta", &upper.theta),
-                ("upper_H", &upper.h),
-                ("upper_ue_over_vinf", &upper.ue_over_vinf),
-                ("lower_theta", &lower.theta),
-                ("lower_H", &lower.h),
-                ("lower_ue_over_vinf", &lower.ue_over_vinf),
-            ];
-            for (name, values) in distributions {
-                outputs.insert(name.to_string(), array(&[NUM_BL_POINTS], values.to_vec()));
-            }
+            insert_boundary_layer(&mut outputs, &upper, &lower);
         }
         Ok(outputs)
     }
 
     async fn compute_partials(&self, inputs: &ArrayMap) -> Result<PartialMap> {
         let model = self.model()?;
-        let input = read_aero_input(inputs)?;
         let mut partials = HashMap::new();
 
-        // Without boundary layer outputs only the six scalar gradients are
-        // needed, which the reverse-mode path computes several times faster.
-        if !self.include_boundary_layer {
-            let grad = model.analyze_scalars_with_gradients(&input).gradient;
-            insert_scalar_partials(&mut partials, "CL", &grad.cl);
-            insert_scalar_partials(&mut partials, "CD", &grad.cd);
-            insert_scalar_partials(&mut partials, "CM", &grad.cm);
-            insert_scalar_partials(&mut partials, "Top_Xtr", &grad.top_xtr);
-            insert_scalar_partials(&mut partials, "Bot_Xtr", &grad.bot_xtr);
-            insert_scalar_partials(
-                &mut partials,
-                "analysis_confidence",
-                &grad.analysis_confidence,
-            );
+        if self.include_corrections {
+            let input = self.read_corrected_input(inputs)?;
+            let grad = model.analyze_corrected_with_gradients(&input).gradient;
+            let scalars = [
+                ("CL", &grad.cl),
+                ("CD", &grad.cd),
+                ("CM", &grad.cm),
+                ("Top_Xtr", &grad.top_xtr),
+                ("Bot_Xtr", &grad.bot_xtr),
+                ("analysis_confidence", &grad.analysis_confidence),
+                ("Cpmin", &grad.cpmin),
+                ("Cpmin_0", &grad.cpmin_0),
+                ("mach_crit", &grad.mach_crit),
+                ("mach_dd", &grad.mach_dd),
+            ];
+            for (name, gradient) in scalars {
+                insert_scalar_partials(&mut partials, name, gradient, self.input_blocks());
+            }
+            if self.include_boundary_layer {
+                insert_all_bl_partials(&mut partials, &grad.upper, &grad.lower);
+            }
             return Ok(partials);
         }
 
-        let result = model.analyze_with_gradients(&input);
-        let grad = &result.gradient;
-        insert_scalar_partials(&mut partials, "CL", &grad.cl);
-        insert_scalar_partials(&mut partials, "CD", &grad.cd);
-        insert_scalar_partials(&mut partials, "CM", &grad.cm);
-        insert_scalar_partials(&mut partials, "Top_Xtr", &grad.top_xtr);
-        insert_scalar_partials(&mut partials, "Bot_Xtr", &grad.bot_xtr);
-        insert_scalar_partials(
-            &mut partials,
-            "analysis_confidence",
-            &grad.analysis_confidence,
-        );
+        let input = read_aero_input(inputs)?;
 
-        insert_bl_partials(&mut partials, "upper_theta", &grad.upper.theta);
-        insert_bl_partials(&mut partials, "upper_H", &grad.upper.h);
-        insert_bl_partials(
-            &mut partials,
-            "upper_ue_over_vinf",
-            &grad.upper.ue_over_vinf,
-        );
-        insert_bl_partials(&mut partials, "lower_theta", &grad.lower.theta);
-        insert_bl_partials(&mut partials, "lower_H", &grad.lower.h);
-        insert_bl_partials(
-            &mut partials,
-            "lower_ue_over_vinf",
-            &grad.lower.ue_over_vinf,
-        );
+        // Without boundary layer outputs only the six scalar gradients are
+        // needed, which the reverse-mode path computes several times faster.
+        let (scalars, boundary_layer) = if self.include_boundary_layer {
+            let grad = model.analyze_with_gradients(&input).gradient;
+            let scalars = [
+                grad.cl,
+                grad.cd,
+                grad.cm,
+                grad.top_xtr,
+                grad.bot_xtr,
+                grad.analysis_confidence,
+            ];
+            (scalars, Some((grad.upper, grad.lower)))
+        } else {
+            let grad = model.analyze_scalars_with_gradients(&input).gradient;
+            let scalars = [
+                grad.cl,
+                grad.cd,
+                grad.cm,
+                grad.top_xtr,
+                grad.bot_xtr,
+                grad.analysis_confidence,
+            ];
+            (scalars, None)
+        };
+        for (name, gradient) in SCALAR_OUTPUTS.iter().zip(&scalars) {
+            insert_scalar_partials(&mut partials, name, gradient, self.input_blocks());
+        }
+        if let Some((upper, lower)) = boundary_layer {
+            insert_all_bl_partials(&mut partials, &upper, &lower);
+        }
         Ok(partials)
     }
 }

@@ -45,6 +45,12 @@
 //! latter differentiates in reverse mode and is several times faster than
 //! [`NeuralFoil::analyze_with_gradients`].
 //!
+//! The network is incompressible and trained up to moderate angles of attack.
+//! [`NeuralFoil::analyze_corrected`] adds AeroSandbox's corrections for Mach
+//! number, post-stall behaviour over all 360 degrees and control surface
+//! deflections, and [`FittedAirfoil`] takes an airfoil from coordinates or a
+//! `.dat` file.
+//!
 //! ```no_run
 //! use bora::{AeroInput, ModelSize, NeuralFoil, input_index};
 //!
@@ -66,6 +72,8 @@
 //! # Ok::<(), bora::Error>(())
 //! ```
 
+mod airfoil;
+mod corrections;
 mod error;
 mod kulfan;
 mod network;
@@ -74,6 +82,9 @@ mod neuralfoil;
 pub mod philote;
 mod types;
 
+pub use airfoil::{
+    FittedAirfoil, NormalizedCoordinates, normalize_coordinates, parse_dat, read_dat_file,
+};
 pub use error::{Error, Result};
 pub use kulfan::{Point2, fit_kulfan_parameters, generate_kulfan_coordinates};
 pub use network::{BATCH_BLOCK_SIZE, BatchWorkspace, InputDistribution, Layer, Network};

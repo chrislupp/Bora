@@ -66,6 +66,47 @@ fn leading_edge_mode(x: f64) -> f64 {
     x * (1.0 - x).max(0.0).powf(W as f64 + 0.5)
 }
 
+/// Number of uniformly spaced x/c stations at which the thickness is sampled
+/// (AeroSandbox's default sampling in `Airfoil.max_thickness`).
+const NUM_THICKNESS_STATIONS: usize = 101;
+
+/// Partials of the local thickness at `x` with respect to the upper surface
+/// weights (the negated values are those for the lower surface weights). The
+/// partial with respect to the trailing edge thickness is `x`, and the
+/// leading-edge modification does not change the thickness.
+pub(crate) fn thickness_weight_partials(x: f64) -> [f64; W] {
+    let c = class_function(x);
+    bernstein_basis(x).map(|b| c * b)
+}
+
+/// Returns the maximum thickness over the sampled stations and the x/c of the
+/// station where it occurs.
+pub(crate) fn max_thickness_station(parameters: &KulfanParameters) -> (f64, f64) {
+    let mut best = (f64::NEG_INFINITY, 0.0);
+    for i in 0..NUM_THICKNESS_STATIONS {
+        let x = i as f64 / (NUM_THICKNESS_STATIONS - 1) as f64;
+        let partials = thickness_weight_partials(x);
+        let shape: f64 = (0..W)
+            .map(|k| (parameters.upper_weights[k] - parameters.lower_weights[k]) * partials[k])
+            .sum();
+        let thickness = shape + x * parameters.te_thickness;
+        if thickness > best.0 {
+            best = (thickness, x);
+        }
+    }
+    best
+}
+
+impl KulfanParameters {
+    /// Maximum thickness of the airfoil, in chord units: the largest
+    /// difference between the upper and lower surfaces over 101 uniformly
+    /// spaced x/c stations, which is how AeroSandbox's
+    /// `KulfanAirfoil.max_thickness()` samples it.
+    pub fn max_thickness(&self) -> f64 {
+        max_thickness_station(self).0
+    }
+}
+
 /// Solves the linear system a * x = b via Gaussian elimination with partial
 /// pivoting. `a` is row-major n x n.
 fn solve_linear_system(mut a: Vec<f64>, mut b: Vec<f64>, n: usize) -> Result<Vec<f64>> {

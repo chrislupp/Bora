@@ -67,11 +67,24 @@ pub mod input_index {
     pub const N_CRIT: usize = 20;
     pub const XTR_UPPER: usize = 21;
     pub const XTR_LOWER: usize = 22;
+    /// Mach number. Only present in a
+    /// [`CorrectedGradient`](super::CorrectedGradient), which appends it to
+    /// the [`NUM_INPUTS`](super::NUM_INPUTS) inputs above.
+    pub const MACH: usize = 23;
 }
 
 /// Gradient of a scalar output with respect to the [`NUM_INPUTS`] user inputs.
 /// Component ordering is given by the constants in [`input_index`].
 pub type Gradient = [f64; NUM_INPUTS];
+
+/// Number of differentiable inputs of the corrected analysis: the
+/// [`NUM_INPUTS`] inputs followed by the Mach number.
+pub const NUM_CORRECTED_INPUTS: usize = NUM_INPUTS + 1;
+
+/// Gradient of a corrected output with respect to the
+/// [`NUM_CORRECTED_INPUTS`] inputs: a [`Gradient`] with the Mach derivative
+/// appended at [`input_index::MACH`].
+pub type CorrectedGradient = [f64; NUM_CORRECTED_INPUTS];
 
 /// Kulfan (CST) parameterization of an airfoil shape.
 ///
@@ -114,6 +127,180 @@ impl Default for AeroInput {
             xtr_lower: 1.0,
         }
     }
+}
+
+/// An operating condition without an airfoil shape: the fields of
+/// [`AeroInput`] other than the Kulfan parameters. Used with a
+/// [`FittedAirfoil`](crate::FittedAirfoil).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OperatingPoint {
+    /// Angle of attack (deg).
+    pub alpha: f64,
+    /// Reynolds number.
+    pub re: f64,
+    /// Critical amplification factor for transition.
+    pub n_crit: f64,
+    /// Forced transition location, upper surface (x/c).
+    pub xtr_upper: f64,
+    /// Forced transition location, lower surface (x/c).
+    pub xtr_lower: f64,
+}
+
+impl Default for OperatingPoint {
+    fn default() -> Self {
+        let input = AeroInput::default();
+        Self {
+            alpha: input.alpha,
+            re: input.re,
+            n_crit: input.n_crit,
+            xtr_upper: input.xtr_upper,
+            xtr_lower: input.xtr_lower,
+        }
+    }
+}
+
+/// A control surface on the airfoil section, as in AeroSandbox's
+/// `ControlSurface`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ControlSurface {
+    /// Deflection (deg), positive trailing edge down.
+    pub deflection: f64,
+    /// Hinge location (x/c).
+    pub hinge_point: f64,
+}
+
+impl Default for ControlSurface {
+    fn default() -> Self {
+        Self {
+            deflection: 0.0,
+            hinge_point: 0.75,
+        }
+    }
+}
+
+/// Inputs of a corrected analysis
+/// ([`NeuralFoil::analyze_corrected`](crate::NeuralFoil::analyze_corrected)):
+/// an [`AeroInput`] plus what AeroSandbox's `get_aero_from_neuralfoil` adds on
+/// top of NeuralFoil.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorrectedInput {
+    /// Airfoil shape and incompressible operating condition.
+    pub aero: AeroInput,
+    /// Freestream Mach number.
+    pub mach: f64,
+    /// Control surfaces deflected on the section; empty for none.
+    pub control_surfaces: Vec<ControlSurface>,
+    /// Blend towards a flat-plate-like post-stall model beyond about 20 deg
+    /// of angle of attack, which makes the result usable over the full 360
+    /// deg range (default true, as upstream).
+    pub include_360_deg_effects: bool,
+}
+
+impl Default for CorrectedInput {
+    fn default() -> Self {
+        AeroInput::default().into()
+    }
+}
+
+impl From<AeroInput> for CorrectedInput {
+    /// A corrected analysis of `aero` at Mach 0 without control surfaces and
+    /// with the 360 deg effects enabled.
+    fn from(aero: AeroInput) -> Self {
+        Self {
+            aero,
+            mach: 0.0,
+            control_surfaces: Vec::new(),
+            include_360_deg_effects: true,
+        }
+    }
+}
+
+/// Outputs of a corrected analysis.
+///
+/// When used as a derivative (the entries of
+/// [`CorrectedGradients::deflection`]), every field holds the derivative of
+/// the quantity it names.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CorrectedOutput {
+    /// Network confidence in [0, 1] (not affected by the corrections).
+    pub analysis_confidence: f64,
+    /// Lift coefficient.
+    pub cl: f64,
+    /// Drag coefficient, including wave drag.
+    pub cd: f64,
+    /// Quarter-chord moment coefficient.
+    pub cm: f64,
+    /// Minimum pressure coefficient at the given Mach number.
+    pub cpmin: f64,
+    /// Upper surface transition location (x/c).
+    pub top_xtr: f64,
+    /// Lower surface transition location (x/c).
+    pub bot_xtr: f64,
+    /// Critical Mach number.
+    pub mach_crit: f64,
+    /// Drag divergence Mach number.
+    pub mach_dd: f64,
+    /// Incompressible minimum pressure coefficient.
+    pub cpmin_0: f64,
+    /// Upper surface boundary layer, as predicted by the network
+    /// (incompressible, not corrected).
+    pub upper: BoundaryLayerData,
+    /// Lower surface boundary layer, as predicted by the network
+    /// (incompressible, not corrected).
+    pub lower: BoundaryLayerData,
+}
+
+/// Gradients of the corrected outputs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorrectedGradients {
+    pub analysis_confidence: CorrectedGradient,
+    pub cl: CorrectedGradient,
+    pub cd: CorrectedGradient,
+    pub cm: CorrectedGradient,
+    pub cpmin: CorrectedGradient,
+    pub top_xtr: CorrectedGradient,
+    pub bot_xtr: CorrectedGradient,
+    pub mach_crit: CorrectedGradient,
+    pub mach_dd: CorrectedGradient,
+    pub cpmin_0: CorrectedGradient,
+    /// Upper surface boundary layer gradients with respect to the
+    /// [`NUM_INPUTS`] inputs; the boundary layer does not depend on Mach.
+    pub upper: BoundaryLayerGradients,
+    /// Lower surface boundary layer gradients with respect to the
+    /// [`NUM_INPUTS`] inputs; the boundary layer does not depend on Mach.
+    pub lower: BoundaryLayerGradients,
+    /// Derivative of every output with respect to the deflection (deg) of
+    /// each control surface, in the order of
+    /// [`CorrectedInput::control_surfaces`].
+    pub deflection: Vec<CorrectedOutput>,
+}
+
+impl Default for CorrectedGradients {
+    fn default() -> Self {
+        Self {
+            analysis_confidence: [0.0; NUM_CORRECTED_INPUTS],
+            cl: [0.0; NUM_CORRECTED_INPUTS],
+            cd: [0.0; NUM_CORRECTED_INPUTS],
+            cm: [0.0; NUM_CORRECTED_INPUTS],
+            cpmin: [0.0; NUM_CORRECTED_INPUTS],
+            top_xtr: [0.0; NUM_CORRECTED_INPUTS],
+            bot_xtr: [0.0; NUM_CORRECTED_INPUTS],
+            mach_crit: [0.0; NUM_CORRECTED_INPUTS],
+            mach_dd: [0.0; NUM_CORRECTED_INPUTS],
+            cpmin_0: [0.0; NUM_CORRECTED_INPUTS],
+            upper: BoundaryLayerGradients::default(),
+            lower: BoundaryLayerGradients::default(),
+            deflection: Vec::new(),
+        }
+    }
+}
+
+/// Corrected outputs bundled with their gradients, as returned by
+/// [`NeuralFoil::analyze_corrected_with_gradients`](crate::NeuralFoil::analyze_corrected_with_gradients).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CorrectedResult {
+    pub output: CorrectedOutput,
+    pub gradient: CorrectedGradients,
 }
 
 /// Boundary layer quantities sampled at [`NUM_BL_POINTS`] stations along one

@@ -12,7 +12,7 @@ reproduces NeuralFoil, and how closely NeuralFoil reproduces the physics.
 ## Bora against NeuralFoil
 
 Bora evaluates the same networks with the same transformations as Python
-NeuralFoil 0.3.3. The test suite holds it to that.
+NeuralFoil 0.3.3, and the same corrections as AeroSandbox 4.2.10. The test suite holds it to that.
 
 | Check | Reference | Tolerance |
 |-------|-----------|-----------|
@@ -20,6 +20,9 @@ NeuralFoil 0.3.3. The test suite holds it to that.
 | Analytic Jacobians | CasADi derivatives of Python NeuralFoil | 10⁻⁶ relative |
 | Analytic Jacobians | Central finite differences of Bora | 5 × 10⁻⁵ relative |
 | Mirror symmetry of lift, moment and transition | Exact property | 10⁻¹² absolute |
+| Corrected analysis, 88 cases from Mach 0 to 1.6 and around the circle | AeroSandbox 4.2.10 `get_aero_from_neuralfoil` | 10⁻⁶ relative |
+| Gradients of the corrected analysis | Central finite differences of Bora | 10⁻⁴ relative |
+| Analysis from rotated, scaled and shifted coordinates | Python NeuralFoil `get_aero_from_coordinates` | 10⁻⁶ relative |
 
 The remaining differences are floating-point rounding. Bora sums in a
 different order from NumPy and uses fused multiply-add instructions where the
@@ -56,17 +59,26 @@ remaining error would be XFoil's own
 
 ## Conditions to avoid
 
-**Compressible flow.** The model has no Mach number input and represents
-incompressible flow. Apply your own compressibility correction for moderate
-subsonic Mach numbers, and do not use the results near or above the critical
-Mach number. The Mach-dependent features described in the NeuralFoil paper
-are part of AeroSandbox and are not included in Bora.
+**Compressible flow, without the corrections.** `analyze` and its variants
+have no Mach number input and represent incompressible flow. The
+[corrected analysis](../guide/corrections.md) adds a Mach number.
+
+**Transonic flow, as a prediction.** The compressibility corrections are
+empirical fits layered on an incompressible analysis. They place the drag
+rise roughly where it belongs and keep the model smooth through Mach 1, which
+is what a conceptual-design optimizer needs. They do not compute a shock, so
+do not use them to judge a transonic section.
 
 **Deep stall and large angles.** The training data ends near ±28° and thins
-well before that. NeuralFoil's 360° capability comes from blending the
-network with an empirical post-stall model in AeroSandbox, which Bora does
-not include. Beyond about ±20° treat Bora's output as extrapolation; the
-confidence output will say so.
+well before that. Beyond about ±20° treat the network's output as
+extrapolation; the confidence output will say so. The corrected analysis
+replaces it there with an empirical post-stall model that is the same for
+every section, which keeps a solver running but says little about your
+airfoil.
+
+**Deflected control surfaces.** The corrected analysis treats a deflection as
+a change in angle of attack and a drag penalty. The pressure distribution,
+transition and moment of a real flapped section are not modelled.
 
 **Shapes the parameterization cannot represent.** Eighteen parameters describe
 smooth, conventional sections well. They cannot reproduce sharp corners,

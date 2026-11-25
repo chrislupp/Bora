@@ -47,8 +47,9 @@ Bora is derived from two MIT-licensed projects by Peter Sharpe:
 - **NeuralFoil**: the network architecture, the input and output processing,
   the analysis model, and the network weights in `data/`, which are converted
   from NeuralFoil's weight files.
-- **AeroSandbox**: the Kulfan parameterization, coordinate generation and
-  parameter fitting.
+- **AeroSandbox**: the Kulfan parameterization, coordinate generation,
+  normalization and parameter fitting, and the compressibility, post-stall
+  and control-surface corrections.
 
 Bora itself is licensed under Apache-2.0. The license notices of both
 upstream projects are reproduced in
@@ -97,8 +98,8 @@ P. Sharpe, *AeroSandbox* (software).
 [github.com/peterdsharpe/AeroSandbox](https://github.com/peterdsharpe/AeroSandbox)
 
 The source of the Kulfan geometry routines, and the home of NeuralFoil's
-compressibility, post-stall and control-surface extensions, which Bora does
-not include.
+compressibility, post-stall and control-surface extensions, which Bora ports
+as its [corrected analysis](./guide/corrections.md).
 
 ### Background
 
@@ -127,6 +128,16 @@ D. A. Masters, N. J. Taylor, T. C. S. Rendall, C. B. Allen and D. J. Poole,
 [doi.org/10.2514/1.J054943](https://doi.org/10.2514/1.J054943)
 
 Evidence for how many shape parameters an airfoil description needs.
+
+#### Truong, 2020 {/* #truong-2020 */}
+
+V. K. Truong, "An analytical model for airfoil aerodynamic characteristics
+over the entire 360° angle of attack range," *Journal of Renewable and
+Sustainable Energy*, vol. 12, 2020.
+[doi.org/10.1063/1.5126055](https://doi.org/10.1063/1.5126055)
+
+The separated-flow model that the corrected analysis blends into beyond
+stall.
 
 #### Drela, 1998 {/* #drela-1998 */}
 
