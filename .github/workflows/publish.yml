@@ -5,7 +5,7 @@ name: Publish to crates.io
 # out of Cargo.toml, so publishing one would claim the final version number.
 #
 # Authentication tries crates.io trusted publishing (OIDC) first and falls back to
-# the CARGO_REGISTRY_TOKEN secret of the crates-io environment only if the OIDC
+# the CARGO_REGISTRY_TOKEN secret (repository or crates-io environment) only if the OIDC
 # exchange fails. A stale or revoked token therefore cannot block a release once
 # trusted publishing is set up (v0.3.0 failed with 403 because the bootstrap token
 # was still preferred over OIDC). Trusted publisher on crates.io (crate settings ->
