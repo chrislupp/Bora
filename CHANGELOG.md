@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Release workflow: the GitHub Release is now created with the `RELEASE_TOKEN` PAT (passed as
+  the action's `token` input) instead of the default `GITHUB_TOKEN`, so publishing it triggers
+  the crates.io publish workflow; 0.2.0 had to be published by a manual dispatch
+
 ## [0.2.0] - 2026-11-25
 
 ### Added
