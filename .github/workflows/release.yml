@@ -273,8 +273,10 @@ jobs:
         name: ${{ steps.version.outputs.tag_version }}
         body_path: /tmp/release-notes.md
         prerelease: ${{ steps.version.outputs.is_prerelease }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        # Must be the PAT, passed as the `token` input: the input defaults to
+        # github.token and overrides the GITHUB_TOKEN env var, and a release
+        # created by github-actions[bot] does not trigger publish.yml.
+        token: ${{ secrets.RELEASE_TOKEN }}
 
     # ── Merge back to develop ───────────────────────────────────────
     - name: Merge main back to develop

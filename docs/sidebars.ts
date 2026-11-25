@@ -18,6 +18,7 @@ const sidebars: SidebarsConfig = {
         chapter("Guide", [
             "guide/geometry",
             "guide/analysis",
+            "guide/corrections",
             "guide/gradients",
             "guide/confidence",
             "guide/model-sizes",

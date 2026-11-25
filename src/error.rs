@@ -45,6 +45,14 @@ pub enum Error {
         source: hdf5_pure::Error,
     },
 
+    /// A file could not be read.
+    #[error("cannot read {path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     /// A weight or distribution file is missing data or has the wrong layout.
     #[error("{0}")]
     Format(String),

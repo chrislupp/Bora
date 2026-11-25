@@ -35,11 +35,16 @@ and is safe to call from several threads.
 | `analyze_batch_into` | `(&[AeroInput], &mut [AeroOutput], &mut BatchWorkspace)` | The same, without allocating |
 | `analyze_scalars_batch` | `(&[AeroInput]) -> Vec<AeroScalars>` | Many inputs at once, the six scalars |
 | `analyze_scalars_batch_into` | `(&[AeroInput], &mut [AeroScalars], &mut BatchWorkspace)` | The same, without allocating |
+| `analyze_corrected` | `(&CorrectedInput) -> CorrectedOutput` | With Mach number, post-stall and control-surface corrections |
+| `analyze_corrected_with_gradients` | `(&CorrectedInput) -> CorrectedResult` | The same, with gradients including Mach and deflections |
+| `analyze_corrected_batch` | `(&[CorrectedInput]) -> Vec<CorrectedOutput>` | Many corrected inputs at once |
+| `analyze_airfoil` | `(&FittedAirfoil, &OperatingPoint) -> AeroOutput` | An airfoil given as coordinates, in its own frame |
 | `model_size` | `() -> ModelSize` | The size the model was constructed with |
 
 The `_into` forms panic if the output slice and the input slice differ in
 length. See [Inputs and outputs](../guide/analysis.md),
-[Gradients](../guide/gradients.md) and
+[Gradients](../guide/gradients.md),
+[Mach number, stall and flaps](../guide/corrections.md) and
 [Weights and deployment](../guide/deployment.md).
 
 ### `ModelSize`
@@ -53,7 +58,7 @@ length. See [Inputs and outputs](../guide/analysis.md),
 
 | Type | Contents |
 |------|----------|
-| `KulfanParameters` | `upper_weights`, `lower_weights` (`[f64; 8]` each), `leading_edge_weight`, `te_thickness` |
+| `KulfanParameters` | `upper_weights`, `lower_weights` (`[f64; 8]` each), `leading_edge_weight`, `te_thickness`; `max_thickness()` |
 | `AeroInput` | `kulfan`, `alpha`, `re`, `n_crit`, `xtr_upper`, `xtr_lower` |
 | `AeroOutput` | `cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`, `analysis_confidence`, and `upper`, `lower` boundary layers |
 | `BoundaryLayerData` | `theta`, `h`, `ue_over_vinf`, each `[f64; NUM_BL_POINTS]` |
@@ -65,19 +70,29 @@ length. See [Inputs and outputs](../guide/analysis.md),
 | `AeroResult` | `output: AeroOutput`, `gradient: AeroGradients` |
 | `AeroScalarResult` | `output: AeroScalars`, `gradient: AeroScalarGradients` |
 | `AeroTangent` | `output: AeroOutput`, `tangent: AeroOutput`, the directional derivative of every field |
+| `OperatingPoint` | The fields of `AeroInput` without the shape: `alpha`, `re`, `n_crit`, `xtr_upper`, `xtr_lower` |
+| `FittedAirfoil` | `kulfan` of the normalized airfoil, and the `x_translation`, `y_translation`, `scale_factor`, `rotation_angle` that normalized it |
+| `NormalizedCoordinates` | `coordinates` and the same four transform values |
+| `ControlSurface` | `deflection` (degrees, trailing edge down), `hinge_point` |
+| `CorrectedInput` | `aero: AeroInput`, `mach`, `control_surfaces`, `include_360_deg_effects` |
+| `CorrectedOutput` | The fields of `AeroOutput`, and `cpmin`, `cpmin_0`, `mach_crit`, `mach_dd` |
+| `CorrectedGradient` | `[f64; NUM_CORRECTED_INPUTS]`: a `Gradient` followed by the Mach number |
+| `CorrectedGradients` | A `CorrectedGradient` for every scalar of `CorrectedOutput`, the boundary-layer gradients, and `deflection`, one `CorrectedOutput` of derivatives per control surface |
+| `CorrectedResult` | `output: CorrectedOutput`, `gradient: CorrectedGradients` |
 | `BatchWorkspace` | Reusable scratch space for the batched calls; grows on first use |
 | `Point2` | `[f64; 2]`, an airfoil coordinate |
 
 The `input_index` module names the entries of a `Gradient`: `UPPER_WEIGHTS`,
 `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`, `ALPHA`, `RE`,
 `N_CRIT`, `XTR_UPPER`, `XTR_LOWER`. The first two are the start of
-eight-entry blocks.
+eight-entry blocks. `MACH` is the last entry of a `CorrectedGradient` only.
 
 ## Constants
 
 | Constant | Value | Meaning |
 |----------|------:|---------|
 | `NUM_INPUTS` | 23 | Differentiable user inputs |
+| `NUM_CORRECTED_INPUTS` | 24 | The same, and the Mach number |
 | `NUM_CST_WEIGHTS_PER_SIDE` | 8 | Kulfan weights per surface |
 | `NUM_BL_POINTS` | 32 | Boundary-layer stations per surface |
 | `NUM_LATENT_INPUTS` | 25 | Network input dimension |
@@ -88,7 +103,11 @@ eight-entry blocks.
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
-| `fit_kulfan_parameters` | `(&[Point2]) -> Result<KulfanParameters>` | Least-squares fit to Selig-format coordinates |
+| `parse_dat` | `(&str) -> Result<Vec<Point2>>` | Points from the text of a coordinate file |
+| `read_dat_file` | `(path) -> Result<Vec<Point2>>` | Points from a coordinate file |
+| `normalize_coordinates` | `(&[Point2]) -> Result<NormalizedCoordinates>` | Leading edge to the origin, unit chord on the x axis |
+| `FittedAirfoil::from_coordinates`, `from_dat_file` | `-> Result<FittedAirfoil>` | Normalize and fit in one step |
+| `fit_kulfan_parameters` | `(&[Point2]) -> Result<KulfanParameters>` | Least-squares fit to normalized Selig-format coordinates |
 | `generate_kulfan_coordinates` | `(&KulfanParameters, n_points_per_side) -> Result<Vec<Point2>>` | Selig-format coordinates from parameters |
 | `bl_x_points` | `() -> [f64; NUM_BL_POINTS]` | Chordwise stations of the boundary-layer outputs |
 | `version` | `() -> &'static str` | The crate version |
@@ -98,8 +117,8 @@ See [Airfoil geometry](../guide/geometry.mdx).
 ## Errors
 
 `bora::Result<T>` is `Result<T, bora::Error>`. Constructors, loaders and the
-Kulfan utilities return it; analysis calls do not. The variants of `Error`
-are `Open`, `Format`, `DataDirNotFound`, `DimensionMismatch`,
+geometry utilities return it; analysis calls do not. The variants of `Error`
+are `Open`, `Io`, `Format`, `DataDirNotFound`, `DimensionMismatch`,
 `InvalidArgument` and `SingularFit`, described in
 [Weights and deployment](../guide/deployment.md#errors).
 

@@ -81,16 +81,18 @@ the size is not recorded in the file.
 
 ## Errors
 
-Loading is the only fallible part of the API. Every loader returns
+Loading weights and reading or fitting geometry are the fallible parts of the
+API. Each of those functions returns
 `bora::Result<T>`, and `bora::Error` says what went wrong:
 
 | Variant | Cause |
 |---------|-------|
 | `Open` | An HDF5 file is missing or unreadable |
+| `Io` | An airfoil coordinate file could not be read |
 | `Format` | A file is missing a dataset or has the wrong layout |
 | `DataDirNotFound` | No weight directory could be resolved |
 | `DimensionMismatch` | The network or distribution does not have NeuralFoil's dimensions |
-| `InvalidArgument` | An argument is out of range, such as an unknown size name |
+| `InvalidArgument` | An argument is out of range, such as an unknown size name, or coordinates are unusable |
 | `SingularFit` | A Kulfan fit problem is degenerate |
 
 `Error` implements `std::error::Error`, so it works with `?` in functions
