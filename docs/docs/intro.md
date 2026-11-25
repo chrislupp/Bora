@@ -71,24 +71,28 @@ differentiable, and Bora returns those derivatives analytically.
 as the query moves away from the conditions the network was trained on. An
 optimizer can be kept inside the trustworthy region by constraining it.
 
-## What Bora leaves out
+## Beyond the network
 
-Bora ports NeuralFoil's standalone model: the neural network, its input and
-output encodings, the angle-of-attack symmetry and the confidence correction.
-The NeuralFoil paper also describes features that are implemented in
-[AeroSandbox](https://github.com/peterdsharpe/AeroSandbox) around the network.
-These are **not** part of Bora:
+The network itself models incompressible flow at angles of attack up to about
+±20°. The NeuralFoil paper also describes features that
+[AeroSandbox](https://github.com/peterdsharpe/AeroSandbox) implements around
+it, and Bora ports these too, as a separate
+[corrected analysis](./guide/corrections.md):
 
-- **Compressibility.** The network models incompressible flow. There is no
-  Mach number input and no transonic correction.
-- **Post-stall model fusion.** AeroSandbox blends the network with an
-  empirical model for massively separated flow, giving sensible results over
-  all 360° of angle of attack. Bora returns the network's own output, which is
-  only meaningful where the training data lies, roughly between −20° and +20°.
-- **Control surface deflections.** Deflect the surface in your own geometry
-  and fit Kulfan parameters to the result if you need this.
+- **Compressibility.** A Mach number input, with the critical and
+  drag-divergence Mach numbers, wave drag and the transonic changes in lift
+  and moment.
+- **Post-stall model fusion.** A blend with an empirical model for massively
+  separated flow, giving sensible results over all 360° of angle of attack.
+- **Control surface deflections.** Flaps modelled as a shift in angle of
+  attack and a drag penalty.
 
-Two more limits follow from what the model is. Its accuracy is measured against
+Bora also reads coordinate files and analyzes airfoils that are not in the
+normalized frame, see [Airfoil geometry](./guide/geometry.mdx). What it leaves
+to AeroSandbox is geometry generation: there is no NACA generator and no
+airfoil database.
+
+Two limits follow from what the model is. Its accuracy is measured against
 XFoil, not against experiment, so XFoil's modeling assumptions are a ceiling.
 And the 18-parameter shape description cannot represent every airfoil: see
 [Accuracy and limits](./background/accuracy-and-limits.md) before relying on

@@ -41,7 +41,9 @@ the boundary layer earlier. A forced transition location of 1 means free
 transition; any smaller value trips the boundary layer no later than that
 station, as a transition strip would.
 
-**Mach number.** There is no Mach input. The model is incompressible.
+**Mach number.** `AeroInput` has no Mach input: the network is incompressible.
+Mach number, post-stall behaviour and control surfaces are added by the
+corrected analysis, see [Mach number, stall and flaps](./corrections.md).
 
 ### The range the model knows
 

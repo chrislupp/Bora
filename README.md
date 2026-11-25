@@ -23,6 +23,14 @@ larger aero tools. Outputs match Python NeuralFoil 0.3.3 to floating-point
 precision (verified by reference-value tests) and all eight upstream network
 sizes (`xxsmall` ... `xxxlarge`) are supported.
 
+Bora also ports what AeroSandbox adds around the network, as
+`analyze_corrected`: a Mach number input with compressibility corrections
+(critical and drag-divergence Mach numbers, wave drag), a post-stall model for
+all 360 degrees of angle of attack, and control surface deflections, again
+with analytic gradients (including Mach number and deflection). Airfoils can
+be given as Kulfan parameters, as coordinates, or as a `.dat` file
+(`FittedAirfoil`).
+
 ## Quick Start
 
 ```rust
@@ -58,7 +66,8 @@ The crate is published as `bora-foil`, but the library is still imported as
 `bora` (`use bora::...`).
 
 See `examples/example.rs` for basic usage, `examples/polar.rs` for a lift curve
-and drag polar, and `examples/openmdao/optimize_daedalus.py` for a multipoint
+and drag polar, `examples/compressible.rs` for a Mach sweep, a flap and the
+post-stall model, and `examples/openmdao/optimize_daedalus.py` for a multipoint
 airfoil optimization with OpenMDAO and IPOPT. The
 [documentation](https://chrislupp.github.io/Bora/) covers the model, its
 validity limits, and the API.
@@ -142,7 +151,8 @@ prefer to embed the `.h5` file images into your own binary with
 Bora is derived from [NeuralFoil](https://github.com/peterdsharpe/NeuralFoil)
 by Peter Sharpe: the network architecture, input/output processing, and
 analysis model are ported from NeuralFoil, and the network weights in `data/`
-are converted from its weight files. The Kulfan (CST) geometry utilities follow
+are converted from its weight files. The Kulfan (CST) geometry utilities and
+the compressibility, post-stall and control surface corrections follow
 [AeroSandbox](https://github.com/peterdsharpe/AeroSandbox), also by Peter
 Sharpe. Both projects are MIT-licensed; their license notices are reproduced in
 [NOTICE](NOTICE).

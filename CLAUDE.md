@@ -29,6 +29,7 @@ cargo bench -- medium xlarge
 # Run examples
 cargo run --release --example example
 cargo run --release --example polar
+cargo run --release --example compressible
 
 # OpenMDAO + IPOPT over Philote (needs openmdao, philote-mdo, pyoptsparse with IPOPT;
 # starts bora_server itself)

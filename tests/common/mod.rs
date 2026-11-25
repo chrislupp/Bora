@@ -30,8 +30,9 @@
 */
 
 //! Shared loaders for the HDF5 reference data in tests/data/ (generated from
-//! Python NeuralFoil; see scripts/generate_output_ref_data.py and
-//! scripts/generate_gradient_ref_data.py). The files are committed to the
+//! Python NeuralFoil; see scripts/generate_output_ref_data.py,
+//! scripts/generate_gradient_ref_data.py and
+//! scripts/generate_corrected_ref_data.py). The files are committed to the
 //! repository and only regenerated when the reference data is updated.
 
 #![allow(dead_code)]
@@ -138,6 +139,64 @@ pub fn gradient_ref_data() -> GradientRefData {
     assert_eq!(data.names.len(), data.n_cases);
     assert_eq!(data.model_sizes.len(), data.n_cases);
     assert_eq!(data.n_rows, 6 + 2 * 3 * data.bl_stations.len());
+    data
+}
+
+/// A row-major table of doubles from a reference file.
+pub struct Table {
+    pub values: Vec<f64>,
+    pub n_rows: usize,
+    pub n_cols: usize,
+}
+
+impl Table {
+    pub fn row(&self, i: usize) -> &[f64] {
+        &self.values[i * self.n_cols..][..self.n_cols]
+    }
+}
+
+fn read_table(file: &File, name: &str) -> Table {
+    let (values, dims) = read_doubles(file, name);
+    let n_cols = dims.get(1).copied().unwrap_or(1);
+    Table {
+        values,
+        n_rows: dims[0],
+        n_cols,
+    }
+}
+
+/// Reference data loaded from corrected_ref_data.h5; see
+/// scripts/generate_corrected_ref_data.py for the layout.
+pub struct CorrectedRefData {
+    pub model_size: &'static str,
+    pub corrected_names: Vec<String>,
+    pub corrected_inputs: Table,
+    pub control_surfaces: Table,
+    pub corrected_outputs: Table,
+    pub airfoil_names: Vec<String>,
+    pub airfoil_coordinates: Table,
+    pub airfoil_counts: Table,
+    pub airfoil_conditions: Table,
+    pub airfoil_outputs: Table,
+}
+
+pub fn corrected_ref_data() -> CorrectedRefData {
+    let file = open("corrected_ref_data.h5");
+    let data = CorrectedRefData {
+        model_size: "medium",
+        corrected_names: read_strings(&file, "corrected/names"),
+        corrected_inputs: read_table(&file, "corrected/inputs"),
+        control_surfaces: read_table(&file, "corrected/control_surfaces"),
+        corrected_outputs: read_table(&file, "corrected/outputs"),
+        airfoil_names: read_strings(&file, "airfoil/names"),
+        airfoil_coordinates: read_table(&file, "airfoil/coordinates"),
+        airfoil_counts: read_table(&file, "airfoil/counts"),
+        airfoil_conditions: read_table(&file, "airfoil/conditions"),
+        airfoil_outputs: read_table(&file, "airfoil/outputs"),
+    };
+    assert_eq!(data.corrected_names.len(), data.corrected_inputs.n_rows);
+    assert_eq!(data.corrected_outputs.n_rows, data.corrected_inputs.n_rows);
+    assert_eq!(data.airfoil_names.len(), data.airfoil_outputs.n_rows);
     data
 }
 

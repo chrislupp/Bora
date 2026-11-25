@@ -48,6 +48,7 @@ model written against Python NeuralFoil's output names needs no translation.
 | `n_crit` | 1 | | `n_crit` |
 | `xtr_upper` | 1 | | `xtr_upper` |
 | `xtr_lower` | 1 | | `xtr_lower` |
+| `mach` | 1 | | `mach`, with `include_corrections` |
 
 <TableCaption>Outputs of the Philote discipline.</TableCaption>
 
@@ -58,11 +59,13 @@ model written against Python NeuralFoil's output names needs no translation.
 | `analysis_confidence` | 1 | Always |
 | `upper_theta`, `upper_H`, `upper_ue_over_vinf` | 32 | With `include_boundary_layer` |
 | `lower_theta`, `lower_H`, `lower_ue_over_vinf` | 32 | With `include_boundary_layer` |
+| `Cpmin`, `Cpmin_0`, `mach_crit`, `mach_dd` | 1 | With `include_corrections` |
 
 Partials are declared for every output with respect to every input. Each is a
 row-major block of output size by input size with singleton dimensions
 dropped: the partial of `CL` with respect to `upper_weights` has shape 8, and
-that of `upper_theta` with respect to `upper_weights` has shape 32 by 8.
+that of `upper_theta` with respect to `upper_weights` has shape 32 by 8. The
+boundary layer does not depend on `mach`, so that pair is not declared.
 
 ## Options
 
@@ -73,6 +76,8 @@ that of `upper_theta` with respect to `upper_weights` has shape 32 by 8.
 | `model_size` | str | `"xlarge"` | Network size name, see [Choosing a network size](./model-sizes.md#names) |
 | `data_directory` | str | empty | Directory holding the weight files; empty uses the [standard search](./deployment.md#where-bora-looks) |
 | `include_boundary_layer` | bool | `false` | Also expose the boundary-layer outputs and their partials |
+| `include_corrections` | bool | `false` | Add the `mach` input and apply the [corrections](./corrections.md) to the coefficients and transition locations |
+| `include_360_deg_effects` | bool | `true` | With `include_corrections`, blend into the post-stall model at large angles |
 
 Options are applied when the client sets them, and the model is reloaded at
 that point, so a bad size name or directory fails the options call rather than
@@ -82,6 +87,9 @@ Leave `include_boundary_layer` off unless you need those outputs. Without it
 the discipline computes values with `analyze_scalars` and partials with the
 reverse-mode `analyze_scalars_with_gradients`, which is several times faster
 than the full calls it must use otherwise (see [Gradients](./gradients.md)).
+The same holds for `include_corrections`, which needs the edge velocities and
+so always takes the full forward-mode path. The discipline has no
+control-surface inputs; use the Rust API for those.
 
 For a complete OpenMDAO model that drives the server with IPOPT, see
 [Multipoint optimization](../examples/openmdao.mdx).
