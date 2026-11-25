@@ -1,7 +1,6 @@
 ---
 sidebar_position: 3
-sidebar_label: "Optimization"
-title: "Multipoint optimization with OpenMDAO"
+title: "Multipoint optimization"
 description: "The NeuralFoil human-powered-aircraft airfoil case, solved with OpenMDAO and IPOPT, with Bora served over Philote."
 ---
 
@@ -10,20 +9,32 @@ import {
     OptimizedSections,
     SchedulePolars,
 } from "@site/src/components/OptimizationFigures";
+import CodeBlock from "@theme/CodeBlock";
+import optimizeDaedalus from "@site/../examples/openmdao/optimize_daedalus.py?raw";
+import kulfan from "@site/../examples/openmdao/kulfan.py?raw";
 
-# Multipoint optimization with OpenMDAO
+# Multipoint optimization
 
-`examples/openmdao/optimize_daedalus.py` designs an airfoil for a
-human-powered aircraft. It is the case the NeuralFoil paper uses to show
-optimization with NeuralFoil
-([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)), built on a
-problem from Drela's study of airfoil optimization
-([Drela, 1998](../references.md#drela-1998)). Here
-[OpenMDAO](https://openmdao.org) runs the model, IPOPT (through pyOptSparse)
-solves it, and Bora runs as a separate process behind the
-[Philote discipline](../guide/philote.md).
+In this tutorial you set up an airfoil optimization in
+[OpenMDAO](https://openmdao.org), with Bora doing the aerodynamics and IPOPT
+doing the optimizing. You will learn how to:
 
-## Requirements
+- run Bora as a server and connect it to OpenMDAO through
+  [Philote](../guide/philote.md),
+- analyze several operating points with one server,
+- add geometric constraints of your own next to Bora's outputs,
+- hand the whole problem to IPOPT with exact gradients.
+
+The example designs an airfoil for a human-powered aircraft. It is the case
+the NeuralFoil paper uses to demonstrate optimization
+([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)), originally
+from Drela's study of airfoil optimization
+([Drela, 1998](../references.md#drela-1998)). The complete script is
+`examples/openmdao/optimize_daedalus.py`. The steps below walk through it.
+
+## Before you start
+
+You need:
 
 - OpenMDAO and Philote-Python (`philote-mdo` on PyPI), listed in
   `examples/openmdao/requirements.txt`
@@ -32,23 +43,24 @@ solves it, and Bora runs as a separate process behind the
 - A Rust toolchain. The script starts `bora_server` through
   `cargo run --features philote`, so the first run also builds the server
 
-From the repository root:
+Install the Python packages and run the example from the repository root:
 
 ```bash
 pip install -r examples/openmdao/requirements.txt
 python3 examples/openmdao/optimize_daedalus.py
 ```
 
-To use a server that is already running, pass `--server host:port`.
-`--model-size` selects the network (default `large`).
+The whole run takes a few seconds once the server is built. If you already
+have a server running, pass `--server host:port`. `--model-size` selects the
+network (default `large`).
 
-## The problem
+## Step 1: Know what you are solving
 
-The airfoil has to work across the aircraft's whole speed range, so drag is
-averaged over six lift coefficients, with more weight on the higher ones. The
-Reynolds number falls as the lift coefficient rises, holding
-$\mathrm{Re}\sqrt{C_L}$ fixed at the value for $\mathrm{Re} = 500\,000$ and
-$C_L = 1.25$.
+The airfoil has to fly well across the aircraft's whole speed range, so the
+objective is drag averaged over six lift coefficients, with more weight on the
+higher ones. More lift means flying slower, so each point has its own
+Reynolds number: $\mathrm{Re}\sqrt{C_L}$ is held at the value for
+$\mathrm{Re} = 500\,000$ and $C_L = 1.25$.
 
 | Role | Quantity |
 |------|----------|
@@ -63,20 +75,49 @@ $C_L = 1.25$.
 | Fixed | zero trailing-edge thickness, $N_\mathrm{crit} = 9$, free transition |
 | Start | NACA 0012 |
 
-The formulation, the bounds on the weights and the normalization of the
-objective follow the implementation of this case in AeroSandbox's NeuralFoil
-optimization tutorial ([AeroSandbox](../references.md#aerosandbox)), so the
-optimum can be compared with the value it reports. The wiggliness is the sum
-of the squared second differences of each side's weights. The NeuralFoil paper
-recommends limiting it, and positive thickness, as good practice for airfoil
-optimization ([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
+Two of the constraints are there to keep the optimizer honest rather than to
+describe the aircraft. The confidence limit keeps it inside the region where
+the network is trustworthy (see [Analysis confidence](../guide/confidence.md)).
+The wiggliness, the sum of squared second differences of each side's weights,
+stops it from exploiting bumpy shapes. The NeuralFoil paper recommends both,
+along with positive thickness
+([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
 
-## The model
+The formulation, the bounds and the normalization of the objective follow
+AeroSandbox's NeuralFoil optimization tutorial
+([AeroSandbox](../references.md#aerosandbox)), so you can compare your result
+with the one it reports.
+
+## Step 2: Start Bora and connect to it
+
+`bora_server` serves Bora's Philote discipline over gRPC. The script starts it
+on a free port and opens a channel to it:
+
+```python title="examples/openmdao/optimize_daedalus.py (abridged)"
+address = f"localhost:{free_port()}"
+server = subprocess.Popen(
+    ["cargo", "run", "--release", "--quiet", "--features", "philote",
+     "--bin", "bora_server", "--", address],
+    cwd=REPO_ROOT,
+)
+atexit.register(server.terminate)
+
+channel = grpc.insecure_channel(address)
+wait_for(channel, server)
+```
+
+`wait_for` blocks until the server accepts connections, which on the first
+run includes building it.
+
+## Step 3: Add one component per operating point
 
 Each operating point is a Philote-Python `RemoteExplicitComponent`. All six
-connect to the same `bora_server` and receive analytic partials from it.
-Bora's discipline takes a scalar angle of attack, so the design vector of six
-angles reaches the points through `src_indices`:
+share the channel, so one server answers them all, and each receives Bora's
+analytic partials. The shape inputs are promoted so every point sees the same
+airfoil.
+
+Bora's discipline takes a scalar angle of attack, while the design vector
+holds all six angles. Use `src_indices` to give each point its own entry:
 
 ```python title="examples/openmdao/optimize_daedalus.py (abridged)"
 for i in range(N_POINTS):
@@ -89,33 +130,80 @@ for i in range(N_POINTS):
     model.connect("alpha", f"{name}.alpha", src_indices=[i])
 ```
 
-The geometric constraints never need the network, so they are computed
-locally. `examples/openmdao/kulfan.py` evaluates the Kulfan surfaces with the
-same formula as `generate_kulfan_coordinates`. Thickness is linear in the
-weights, because the leading-edge mode cancels between the two surfaces, so
-its Jacobian is constant and the spar and positive-thickness constraints are
-passed to IPOPT as linear constraints.
+The flow conditions are not design variables. Set them once after
+`prob.setup()`:
 
-## IPOPT settings
+```python
+for i, reynolds in enumerate(REYNOLDS):
+    prob.set_val(f"point{i}.Re", reynolds)
+    prob.set_val(f"point{i}.n_crit", 9.0)
+    prob.set_val(f"point{i}.xtr_upper", 1.0)
+    prob.set_val(f"point{i}.xtr_lower", 1.0)
+```
 
-pyOptSparse runs IPOPT with a limited-memory quasi-Newton Hessian. The
-AeroSandbox tutorial gives IPOPT an exact Hessian through automatic
-differentiation, and two of its settings do not carry over:
+## Step 4: Compute the geometry locally
 
-- **No restoration-phase start.** With `start_with_resto`, IPOPT never leaves
-  the restoration phase from the NACA 0012 and stops at an infeasible point.
-  Without it, the run converges.
-- **Longer memory and objective scaling.** The objective is about 0.08, so it
-  is scaled by `ref=0.01`, and `limited_memory_max_history` is raised from 6
-  to 50. Together these cut the run from 556 iterations to 98; either change
-  alone needed over 400.
+The spar, trailing-edge and wiggliness constraints depend only on the shape,
+so there is no reason to send them through the network. The
+`KulfanGeometry` component in `examples/openmdao/kulfan.py` computes them in
+Python, from the same Kulfan formula Bora uses in
+`generate_kulfan_coordinates`, and supplies its own analytic partials.
 
-`mu_strategy = "monotone"` is kept from the tutorial. Every combination of
-these settings that converged reached the same optimum.
+A useful detail: thickness is linear in the weights, because the leading-edge
+mode is the same on both surfaces and cancels. Its Jacobian is therefore
+constant, and you can tell OpenMDAO so with `linear=True`. IPOPT then treats
+the spar and positive-thickness constraints as linear and never has to
+re-evaluate their derivatives:
 
-## Result
+```python title="examples/openmdao/optimize_daedalus.py (abridged)"
+model.add_constraint(
+    "geometry.thickness", lower=SPAR_THICKNESS_MIN, indices=[0, 1],
+    alias="spar_thickness", linear=True,
+)
+```
 
-The run below omits IPOPT's iteration log and option table.
+## Step 5: Add the objective, design variables and constraints
+
+The objective is an `ExecComp` that averages the weighted drag of the six
+points. Scale it with `ref`: its value is around 0.08, and IPOPT works best
+when the objective is near one.
+
+```python title="examples/openmdao/optimize_daedalus.py (abridged)"
+model.add_objective("objective.drag", ref=0.01)
+
+for i, cl in enumerate(CL_TARGETS):
+    model.add_constraint(f"point{i}.CL", equals=cl)
+    model.add_constraint(f"point{i}.CM", lower=CM_MIN)
+    model.add_constraint(f"point{i}.analysis_confidence", lower=CONFIDENCE_MIN)
+```
+
+Note that the lift is a constraint, not an input. The optimizer adjusts each
+point's angle of attack until the lift matches its target.
+
+## Step 6: Configure IPOPT
+
+pyOptSparse runs IPOPT with a limited-memory quasi-Newton Hessian:
+
+```python title="examples/openmdao/optimize_daedalus.py (abridged)"
+driver = prob.driver = om.pyOptSparseDriver(optimizer="IPOPT")
+driver.opt_settings["mu_strategy"] = "monotone"
+driver.opt_settings["limited_memory_max_history"] = 50
+```
+
+If you port settings from the AeroSandbox tutorial, be aware that it gives
+IPOPT an exact Hessian, and two of its choices do not carry over to a
+quasi-Newton one:
+
+- **Leave out `start_with_resto`.** With it, IPOPT never leaves the
+  restoration phase from the NACA 0012 and stops at an infeasible point.
+- **Raise `limited_memory_max_history`.** The default keeps 6 updates. With 50,
+  and the objective scaled as in Step 5, the run takes 98 iterations instead
+  of 556. Either change alone still needs over 400.
+
+## Step 7: Run it
+
+The script prints the starting point, IPOPT's summary and the optimum. Here
+is a run, without IPOPT's iteration log and option table:
 
 ```text
 Starting point (NACA 0012):
@@ -158,39 +246,52 @@ Kulfan parameters:
 Wrote optimized_daedalus.dat
 ```
 
-The optimizer turns the symmetric NACA 0012 into a strongly cambered section
-with a nearly flat lower surface. Its thickness is set by the spars:
-at the optimum both meet their minimums exactly, as do the trailing-edge
-angle, the wiggliness limit and the moment at $C_L = 1.5$, so structure and
-manufacturing shape the design as much as the drag does.
+The optimized airfoil is written to `optimized_daedalus.dat` in Selig format,
+ready for XFoil or any other tool.
+
+## Results
+
+Start with the constraints. In the output above, the spar thicknesses, the
+trailing-edge angle and the wiggliness sit exactly at their limits, and the
+moment at $C_L = 1.5$ is at $-0.133$. Active constraints like these tell you
+what is shaping the design: here the structure and manufacturing limits matter
+as much as the drag. If you want a different airfoil, these are the numbers
+to change.
+
+The shape itself has gone from the symmetric NACA 0012 to a strongly cambered
+section with a nearly flat lower surface:
 
 <OptimizedSections />
 
-Flying both sections along the problem's schedule, with the Reynolds number
-following the lift, shows what the camber buys. The NACA 0012 stalls near
-$C_L = 1.2$ and cannot reach four of the six targets at any angle. The
-optimized section carries lift to about 1.64 with low drag across the whole
-range. The price is a nose-down moment, held off by the limit at
-$C_L = 1.5$.
+Next, look at performance away from the six design points. Flying both
+sections along the same schedule, with the Reynolds number following the
+lift, shows the camber at work. The NACA 0012 stalls near $C_L = 1.2$, so it
+cannot reach four of the six targets at any angle. The optimized section
+carries lift to about 1.64 with low drag throughout, and pays for it with a
+nose-down moment that the $C_M$ limit holds in check:
 
 <SchedulePolars />
 
-IPOPT starts far from feasible. Most of the drag comes off in three long
-steps, at iterations 10, 55 and 73, and each one costs feasibility: the
-violation jumps up and is worked back down over the following iterations.
-From iteration 75 the objective changes only in its fourth decimal, and the
-violation falls from about 10⁻³ to rounding error.
+Finally, confirm that IPOPT actually converged rather than just stopping.
+Optimality and feasibility should both fall to near zero together. Here they
+stay high for most of the run, jumping up whenever the optimizer takes a long
+step (at iterations 10, 55 and 73), then drop fast once the active constraints
+settle near iteration 85. At the end, optimality is about $2 \times 10^{-9}$
+and the constraint violation is at rounding error:
 
 <Convergence />
 
-The optimum, 0.0783, is close to the 0.0793 the AeroSandbox tutorial reports
-for the same formulation. The two analyses are not identical: the tutorial
-also passes Mach 0.03, which NeuralFoil's AeroSandbox wrapper corrects for,
-and Bora has no compressibility correction. As with any surrogate optimum,
-check the section with XFoil before using it.
+## The complete scripts
 
-The data for the figures comes from the same script:
+The example is two files. `optimize_daedalus.py` builds and runs the problem:
 
-```bash
-python3 examples/openmdao/optimize_daedalus.py --json docs/src/data/optimization.json
-```
+<CodeBlock language="python" title="examples/openmdao/optimize_daedalus.py" showLineNumbers>
+    {optimizeDaedalus}
+</CodeBlock>
+
+`kulfan.py` holds the Kulfan geometry and the `KulfanGeometry` component used
+in Step 4:
+
+<CodeBlock language="python" title="examples/openmdao/kulfan.py" showLineNumbers>
+    {kulfan}
+</CodeBlock>

@@ -295,7 +295,8 @@ def schedule_polar(channel, model_size, kulfan):
 
 
 def ipopt_history(prob, objective_ref):
-    """Objective and primal infeasibility per iteration, from IPOPT's output file."""
+    """Objective, feasibility (inf_pr) and optimality (inf_du) per iteration, from IPOPT's
+    output file."""
     path = Path(prob.get_outputs_dir()) / "IPOPT.out"
     pattern = re.compile(r"^\s*(\d+)(r?)\s+(\S+)\s+(\S+)\s+(\S+)\s")
     history = []
@@ -304,7 +305,8 @@ def ipopt_history(prob, objective_ref):
         if match:
             history.append({"iter": int(match[1]), "restoration": bool(match[2]),
                             "objective": float(match[3]) * objective_ref,
-                            "infeasibility": float(match[4])})
+                            "feasibility": float(match[4]),
+                            "optimality": float(match[5])})
     return history
 
 

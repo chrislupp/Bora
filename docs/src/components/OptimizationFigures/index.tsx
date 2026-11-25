@@ -273,18 +273,42 @@ export function SchedulePolars(): ReactNode {
 
 /* ── Convergence ──────────────────────────────────────────────────────── */
 
-// Two iterations per small square across. The objective is 0.01 per small
-// square; the constraint violation one decade per small square.
+// Two iterations per small square across and one decade per small square up,
+// with the powers of ten on heavy rulings. Optimality is IPOPT's dual
+// infeasibility (inf_du), feasibility its primal infeasibility (inf_pr).
 const HISTORY_W = 62 * U;
-const HISTORY_H = 51 * U;
+const HISTORY_H = 42 * U;
 const history = data.history;
 const hx = linear(0, 100, 10 * U, 60 * U);
-const objectiveBox = { left: 10 * U, right: 60 * U, top: 5 * U, bottom: 25 * U };
-const violationBox = { left: 10 * U, right: 60 * U, top: 30 * U, bottom: 47 * U };
-const oy = linear(0.05, 0.25, objectiveBox.bottom, objectiveBox.top);
-const vy = linear(0, -17, violationBox.top, violationBox.bottom);
-const decade = (v: number): number => Math.log10(Math.max(v, 1e-17));
 const ITERATION_TICKS = [0, 20, 40, 60, 80, 100];
+
+/** A log chart: its box, the decade at the box top, the labelled decades and the title. */
+type LogScale = {
+    box: { left: number; right: number; top: number; bottom: number };
+    top: number;
+    ticks: number[];
+    title: string;
+};
+
+const optimalityScale: LogScale = {
+    box: { left: 10 * U, right: 60 * U, top: 3 * U, bottom: 15 * U },
+    top: 2,
+    ticks: [0, -5, -10],
+    title: "Optimality",
+};
+const feasibilityScale: LogScale = {
+    box: { left: 10 * U, right: 60 * U, top: 20 * U, bottom: 36 * U },
+    top: 0,
+    ticks: [0, -5, -10, -15],
+    title: "Feasibility",
+};
+
+/** Height on a log scale; values below its floor sit on the floor. */
+const logY = (scale: LogScale, value: number): number => {
+    const floor = scale.top - (scale.box.bottom - scale.box.top) / U;
+    const decade = Math.log10(Math.max(value, 10 ** floor));
+    return scale.box.top + (scale.top - decade) * U;
+};
 
 function Power({ exponent }: { exponent: number }): ReactNode {
     if (exponent === 0) {
@@ -300,10 +324,11 @@ function Power({ exponent }: { exponent: number }): ReactNode {
     );
 }
 
-/** The violation axes: a log scale, so the numerals are powers of ten. */
-function ViolationAxes(): ReactNode {
-    const box = violationBox;
-    const titleX = box.left - Y_TITLE_ROOM + 4;
+/** Left and bottom axes of a log chart; only the lowest chart numbers the iterations. */
+function LogAxes({ scale, iterations }: { scale: LogScale; iterations: boolean }): ReactNode {
+    const { box } = scale;
+    // Powers of ten are wider than plain numerals, so the title stands further out.
+    const titleX = box.left - Y_TITLE_ROOM - 1.5 * U;
     const titleY = (box.top + box.bottom) / 2;
     return (
         <g>
@@ -311,40 +336,41 @@ function ViolationAxes(): ReactNode {
             {ITERATION_TICKS.map((t) => (
                 <g key={t}>
                     <path className="tick" d={`M${hx(t)} ${box.bottom} v6`} />
-                    <text x={hx(t)} y={box.bottom + 2 * U - 2} textAnchor="middle">
-                        {t}
-                    </text>
+                    {iterations && (
+                        <text x={hx(t)} y={box.bottom + 2 * U - 2} textAnchor="middle">
+                            {t}
+                        </text>
+                    )}
                 </g>
             ))}
-            {[0, -5, -10, -15].map((e) => (
+            {scale.ticks.map((e) => (
                 <g key={e}>
-                    <path className="tick" d={`M${box.left} ${vy(e)} h-6`} />
-                    <text x={box.left - 10} y={vy(e) + 5} textAnchor="end">
+                    <path className="tick" d={`M${box.left} ${logY(scale, 10 ** e)} h-6`} />
+                    <text x={box.left - 10} y={logY(scale, 10 ** e) + 5} textAnchor="end">
                         <Power exponent={e} />
                     </text>
                 </g>
             ))}
-            <text
-                x={(box.left + box.right) / 2}
-                y={box.bottom + 4 * U - 2}
-                textAnchor="middle"
-            >
-                IPOPT iteration
-            </text>
+            {iterations && (
+                <text x={(box.left + box.right) / 2} y={box.bottom + 4 * U - 2} textAnchor="middle">
+                    IPOPT iteration
+                </text>
+            )}
             <text
                 x={titleX}
                 y={titleY}
                 textAnchor="middle"
                 transform={`rotate(-90 ${titleX} ${titleY})`}
             >
-                Constraint violation
+                {scale.title}
             </text>
         </g>
     );
 }
 
-/** Objective and constraint violation at each IPOPT iteration. */
+/** Optimality and feasibility at each IPOPT iteration. */
 export function Convergence(): ReactNode {
+    const first = history[0];
     const last = history.at(-1)!;
     return (
         <figure className="bora-figure">
@@ -353,35 +379,29 @@ export function Convergence(): ReactNode {
                     className="bora-plot"
                     viewBox={`0 0 ${HISTORY_W} ${HISTORY_H}`}
                     role="img"
-                    aria-label={`IPOPT convergence history over ${last.iter} iterations. The objective falls from ${history[0].objective.toFixed(3)} to ${last.objective.toFixed(4)}. The constraint violation falls from ${history[0].infeasibility.toFixed(2)} to below 1e-15, with spikes where the optimizer takes larger steps.`}
+                    aria-label={`IPOPT convergence history over ${last.iter} iterations. Optimality, the dual infeasibility, falls from ${first.optimality} to ${last.optimality.toExponential(1)}; feasibility, the largest constraint violation, falls from ${first.feasibility} to ${last.feasibility.toExponential(1)}, with spikes where the optimizer takes larger steps.`}
                 >
                     <Sheet width={HISTORY_W} height={HISTORY_H} />
-                    <Chart
-                        box={objectiveBox}
-                        x={hx}
-                        y={oy}
-                        xTicks={ITERATION_TICKS}
-                        yTicks={[0.05, 0.1, 0.15, 0.2, 0.25]}
-                        xFormat={() => ""}
-                        yFormat={fixed(2)}
-                        yTitle="Objective"
-                    />
+                    <LogAxes scale={optimalityScale} iterations={false} />
                     <path
                         className="line line--heavy"
-                        d={pathFrom(history.map((h) => [hx(h.iter), oy(h.objective)]))}
+                        d={pathFrom(
+                            history.map((h) => [hx(h.iter), logY(optimalityScale, h.optimality)]),
+                        )}
                     />
-                    <ViolationAxes />
+                    <LogAxes scale={feasibilityScale} iterations />
                     <path
-                        className="line"
-                        d={pathFrom(history.map((h) => [hx(h.iter), vy(decade(h.infeasibility))]))}
+                        className="line line--heavy"
+                        d={pathFrom(
+                            history.map((h) => [hx(h.iter), logY(feasibilityScale, h.feasibility)]),
+                        )}
                     />
                 </svg>
             </div>
             <figcaption>
-                The objective, the mean weighted drag, and the largest constraint violation at each
-                of the {last.iter} IPOPT iterations, read from IPOPT&apos;s output file. One small
-                square is two iterations across, 0.01 in the objective and one decade in the
-                violation.
+                Optimality (IPOPT&apos;s dual infeasibility) and feasibility (its largest constraint
+                violation) at each of the {last.iter} IPOPT iterations, read from IPOPT&apos;s
+                output file. One small square is two iterations across and one decade up.
             </figcaption>
         </figure>
     );

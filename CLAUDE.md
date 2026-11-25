@@ -89,7 +89,9 @@ npm run serve    # Serve production build locally
   `docs/docs/references.md` at the point of use; never copy upstream text
 - Program output shown in the docs is real: rerun the example and paste the result
 - Theme: paper, black ink, and the orange ruling of a graph sheet. Orange rules the figures and
-  underlines links and selections; it never sets text. Charts are scaled so the sheet's rulings
+  underlines links and selections; it never sets text. Code listings are syntax highlighted in
+  the muted inks of `src/prism.ts` (every code fence names its language; `text` only for program
+  output; BibTeX is a custom grammar in `src/theme/prism-include-languages.ts`). Charts are scaled so the sheet's rulings
   are the chart's grid; series differ by symbol and states by line type, not colour. The grid
   stays inside figures, never behind running text
 - Charts: left and bottom axes only (no top or right spines); axis titles go on the axes (the
@@ -97,8 +99,7 @@ npm run serve    # Serve production build locally
   the plot area; a figure's charts are stacked at full column width, not shrunk side by side.
   They are called figures ("Figure N." captions), never plates
 - New doc pages exist only under `/docs/next/` until a release; links from the home page go
-  through `src/lib/useDocPath.ts`, and footer links must point at pages that exist in the
-  latest released version
+  through `src/lib/useDocPath.ts`. The footer holds only the copyright line, no link columns
 - `docs/docusaurus.config.ts` -- Site configuration
 - `docs/sidebars.ts` -- Navigation structure
 

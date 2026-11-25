@@ -84,7 +84,7 @@ reverse-mode `analyze_scalars_with_gradients`, which is several times faster
 than the full calls it must use otherwise (see [Gradients](./gradients.md)).
 
 For a complete OpenMDAO model that drives the server with IPOPT, see
-[Multipoint optimization with OpenMDAO](../examples/openmdao.mdx).
+[Multipoint optimization](../examples/openmdao.mdx).
 
 ## Embedding the discipline
 

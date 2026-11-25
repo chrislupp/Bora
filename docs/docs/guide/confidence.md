@@ -87,5 +87,5 @@ positive-definite quadratic in the encoded inputs, which makes the region of
 high confidence close to convex and well behaved as a constraint.
 
 With a constrained optimizer, impose it directly instead:
-[Multipoint optimization with OpenMDAO](../examples/openmdao.mdx) holds the
+[Multipoint optimization](../examples/openmdao.mdx) holds the
 confidence at or above 0.90 at every operating point as an IPOPT constraint.

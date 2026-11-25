@@ -1438,595 +1438,694 @@
    "iter": 0,
    "restoration": false,
    "objective": 0.20932417,
-   "infeasibility": 0.424
+   "feasibility": 0.424,
+   "optimality": 4.86
   },
   {
    "iter": 1,
    "restoration": false,
    "objective": 0.18673271,
-   "infeasibility": 0.349
+   "feasibility": 0.349,
+   "optimality": 32.2
   },
   {
    "iter": 2,
    "restoration": false,
    "objective": 0.17405494000000002,
-   "infeasibility": 0.323
+   "feasibility": 0.323,
+   "optimality": 105.0
   },
   {
    "iter": 3,
    "restoration": false,
    "objective": 0.16760116,
-   "infeasibility": 0.267
+   "feasibility": 0.267,
+   "optimality": 81.2
   },
   {
    "iter": 4,
    "restoration": false,
    "objective": 0.17815192,
-   "infeasibility": 0.201
+   "feasibility": 0.201,
+   "optimality": 41.2
   },
   {
    "iter": 5,
    "restoration": false,
    "objective": 0.17280046,
-   "infeasibility": 0.216
+   "feasibility": 0.216,
+   "optimality": 44.3
   },
   {
    "iter": 6,
    "restoration": false,
    "objective": 0.17827883,
-   "infeasibility": 0.244
+   "feasibility": 0.244,
+   "optimality": 20.9
   },
   {
    "iter": 7,
    "restoration": false,
    "objective": 0.17951483,
-   "infeasibility": 0.102
+   "feasibility": 0.102,
+   "optimality": 30.7
   },
   {
    "iter": 8,
    "restoration": false,
    "objective": 0.1723279,
-   "infeasibility": 0.12
+   "feasibility": 0.12,
+   "optimality": 22.2
   },
   {
    "iter": 9,
    "restoration": false,
    "objective": 0.16527325999999998,
-   "infeasibility": 0.0727
+   "feasibility": 0.0727,
+   "optimality": 18.3
   },
   {
    "iter": 10,
    "restoration": false,
    "objective": 0.13447383000000002,
-   "infeasibility": 0.419
+   "feasibility": 0.419,
+   "optimality": 72.2
   },
   {
    "iter": 11,
    "restoration": false,
    "objective": 0.12517920999999999,
-   "infeasibility": 0.148
+   "feasibility": 0.148,
+   "optimality": 50.3
   },
   {
    "iter": 12,
    "restoration": false,
    "objective": 0.13933686,
-   "infeasibility": 0.099
+   "feasibility": 0.099,
+   "optimality": 15.5
   },
   {
    "iter": 13,
    "restoration": false,
    "objective": 0.14052734,
-   "infeasibility": 0.0539
+   "feasibility": 0.0539,
+   "optimality": 3.2
   },
   {
    "iter": 14,
    "restoration": false,
    "objective": 0.13647903,
-   "infeasibility": 0.0862
+   "feasibility": 0.0862,
+   "optimality": 7.46
   },
   {
    "iter": 15,
    "restoration": false,
    "objective": 0.13437255,
-   "infeasibility": 0.064
+   "feasibility": 0.064,
+   "optimality": 12.9
   },
   {
    "iter": 16,
    "restoration": false,
    "objective": 0.13446806,
-   "infeasibility": 0.0629
+   "feasibility": 0.0629,
+   "optimality": 12.2
   },
   {
    "iter": 17,
    "restoration": false,
    "objective": 0.13542682,
-   "infeasibility": 0.0329
+   "feasibility": 0.0329,
+   "optimality": 10.4
   },
   {
    "iter": 18,
    "restoration": false,
    "objective": 0.13523827000000002,
-   "infeasibility": 0.0227
+   "feasibility": 0.0227,
+   "optimality": 7.14
   },
   {
    "iter": 19,
    "restoration": false,
    "objective": 0.13569465,
-   "infeasibility": 0.0099
+   "feasibility": 0.0099,
+   "optimality": 7.0
   },
   {
    "iter": 20,
    "restoration": false,
    "objective": 0.13548203,
-   "infeasibility": 0.00184
+   "feasibility": 0.00184,
+   "optimality": 5.68
   },
   {
    "iter": 21,
    "restoration": false,
    "objective": 0.1343049,
-   "infeasibility": 0.00256
+   "feasibility": 0.00256,
+   "optimality": 7.26
   },
   {
    "iter": 22,
    "restoration": false,
    "objective": 0.13475457000000002,
-   "infeasibility": 0.00073
+   "feasibility": 0.00073,
+   "optimality": 5.19
   },
   {
    "iter": 23,
    "restoration": false,
    "objective": 0.13393222,
-   "infeasibility": 0.000614
+   "feasibility": 0.000614,
+   "optimality": 5.66
   },
   {
    "iter": 24,
    "restoration": false,
    "objective": 0.13009899,
-   "infeasibility": 0.00639
+   "feasibility": 0.00639,
+   "optimality": 3.99
   },
   {
    "iter": 25,
    "restoration": false,
    "objective": 0.13079255,
-   "infeasibility": 0.00343
+   "feasibility": 0.00343,
+   "optimality": 4.06
   },
   {
    "iter": 26,
    "restoration": false,
    "objective": 0.12977597,
-   "infeasibility": 0.00214
+   "feasibility": 0.00214,
+   "optimality": 4.53
   },
   {
    "iter": 27,
    "restoration": false,
    "objective": 0.13018136,
-   "infeasibility": 0.000453
+   "feasibility": 0.000453,
+   "optimality": 3.3
   },
   {
    "iter": 28,
    "restoration": false,
    "objective": 0.13038366,
-   "infeasibility": 0.000385
+   "feasibility": 0.000385,
+   "optimality": 2.33
   },
   {
    "iter": 29,
    "restoration": false,
    "objective": 0.12874695,
-   "infeasibility": 0.00711
+   "feasibility": 0.00711,
+   "optimality": 21.2
   },
   {
    "iter": 30,
    "restoration": false,
    "objective": 0.12565341,
-   "infeasibility": 0.019
+   "feasibility": 0.019,
+   "optimality": 17.1
   },
   {
    "iter": 31,
    "restoration": false,
    "objective": 0.12264943,
-   "infeasibility": 0.0142
+   "feasibility": 0.0142,
+   "optimality": 5.42
   },
   {
    "iter": 32,
    "restoration": false,
    "objective": 0.12370038,
-   "infeasibility": 0.00457
+   "feasibility": 0.00457,
+   "optimality": 5.58
   },
   {
    "iter": 33,
    "restoration": false,
    "objective": 0.12313476,
-   "infeasibility": 0.00174
+   "feasibility": 0.00174,
+   "optimality": 2.64
   },
   {
    "iter": 34,
    "restoration": false,
    "objective": 0.12052533,
-   "infeasibility": 0.0127
+   "feasibility": 0.0127,
+   "optimality": 5.92
   },
   {
    "iter": 35,
    "restoration": false,
    "objective": 0.1184473,
-   "infeasibility": 0.00369
+   "feasibility": 0.00369,
+   "optimality": 5.57
   },
   {
    "iter": 36,
    "restoration": false,
    "objective": 0.11965799,
-   "infeasibility": 0.00865
+   "feasibility": 0.00865,
+   "optimality": 2.96
   },
   {
    "iter": 37,
    "restoration": false,
    "objective": 0.12020535,
-   "infeasibility": 0.00107
+   "feasibility": 0.00107,
+   "optimality": 2.69
   },
   {
    "iter": 38,
    "restoration": false,
    "objective": 0.12063558,
-   "infeasibility": 0.00173
+   "feasibility": 0.00173,
+   "optimality": 2.82
   },
   {
    "iter": 39,
    "restoration": false,
    "objective": 0.12040165,
-   "infeasibility": 0.000398
+   "feasibility": 0.000398,
+   "optimality": 2.19
   },
   {
    "iter": 40,
    "restoration": false,
    "objective": 0.12065389,
-   "infeasibility": 0.00221
+   "feasibility": 0.00221,
+   "optimality": 1.93
   },
   {
    "iter": 41,
    "restoration": false,
    "objective": 0.11630678,
-   "infeasibility": 0.0126
+   "feasibility": 0.0126,
+   "optimality": 5.71
   },
   {
    "iter": 42,
    "restoration": false,
    "objective": 0.11834114,
-   "infeasibility": 0.00689
+   "feasibility": 0.00689,
+   "optimality": 4.26
   },
   {
    "iter": 43,
    "restoration": false,
    "objective": 0.1192662,
-   "infeasibility": 0.00332
+   "feasibility": 0.00332,
+   "optimality": 4.58
   },
   {
    "iter": 44,
    "restoration": false,
    "objective": 0.11669947000000001,
-   "infeasibility": 0.0326
+   "feasibility": 0.0326,
+   "optimality": 6.23
   },
   {
    "iter": 45,
    "restoration": false,
    "objective": 0.11765909000000001,
-   "infeasibility": 0.00841
+   "feasibility": 0.00841,
+   "optimality": 2.17
   },
   {
    "iter": 46,
    "restoration": false,
    "objective": 0.115083,
-   "infeasibility": 0.00393
+   "feasibility": 0.00393,
+   "optimality": 3.21
   },
   {
    "iter": 47,
    "restoration": false,
    "objective": 0.11431925,
-   "infeasibility": 0.00287
+   "feasibility": 0.00287,
+   "optimality": 4.97
   },
   {
    "iter": 48,
    "restoration": false,
    "objective": 0.11261828,
-   "infeasibility": 0.00512
+   "feasibility": 0.00512,
+   "optimality": 3.66
   },
   {
    "iter": 49,
    "restoration": false,
    "objective": 0.11205099,
-   "infeasibility": 0.00236
+   "feasibility": 0.00236,
+   "optimality": 2.82
   },
   {
    "iter": 50,
    "restoration": false,
    "objective": 0.11315219000000001,
-   "infeasibility": 0.00194
+   "feasibility": 0.00194,
+   "optimality": 4.11
   },
   {
    "iter": 51,
    "restoration": false,
    "objective": 0.11234522000000001,
-   "infeasibility": 0.000104
+   "feasibility": 0.000104,
+   "optimality": 4.45
   },
   {
    "iter": 52,
    "restoration": false,
    "objective": 0.10961897000000001,
-   "infeasibility": 0.0012
+   "feasibility": 0.0012,
+   "optimality": 3.47
   },
   {
    "iter": 53,
    "restoration": false,
    "objective": 0.10794048,
-   "infeasibility": 0.0027
+   "feasibility": 0.0027,
+   "optimality": 2.2
   },
   {
    "iter": 54,
    "restoration": false,
    "objective": 0.10779157,
-   "infeasibility": 0.00156
+   "feasibility": 0.00156,
+   "optimality": 0.738
   },
   {
    "iter": 55,
    "restoration": false,
    "objective": 0.093107462,
-   "infeasibility": 0.0293
+   "feasibility": 0.0293,
+   "optimality": 6.09
   },
   {
    "iter": 56,
    "restoration": false,
    "objective": 0.088232189,
-   "infeasibility": 0.083
+   "feasibility": 0.083,
+   "optimality": 4.96
   },
   {
    "iter": 57,
    "restoration": false,
    "objective": 0.089781839,
-   "infeasibility": 0.0465
+   "feasibility": 0.0465,
+   "optimality": 9.8
   },
   {
    "iter": 58,
    "restoration": false,
    "objective": 0.091605365,
-   "infeasibility": 0.0504
+   "feasibility": 0.0504,
+   "optimality": 8.27
   },
   {
    "iter": 59,
    "restoration": false,
    "objective": 0.08550221499999999,
-   "infeasibility": 0.0202
+   "feasibility": 0.0202,
+   "optimality": 3.65
   },
   {
    "iter": 60,
    "restoration": false,
    "objective": 0.084658342,
-   "infeasibility": 0.0261
+   "feasibility": 0.0261,
+   "optimality": 6.58
   },
   {
    "iter": 61,
    "restoration": false,
    "objective": 0.084101503,
-   "infeasibility": 0.00707
+   "feasibility": 0.00707,
+   "optimality": 2.99
   },
   {
    "iter": 62,
    "restoration": false,
    "objective": 0.086559102,
-   "infeasibility": 0.00074
+   "feasibility": 0.00074,
+   "optimality": 6.46
   },
   {
    "iter": 63,
    "restoration": false,
    "objective": 0.08329435800000001,
-   "infeasibility": 0.00551
+   "feasibility": 0.00551,
+   "optimality": 2.03
   },
   {
    "iter": 64,
    "restoration": false,
    "objective": 0.08424164599999999,
-   "infeasibility": 0.00626
+   "feasibility": 0.00626,
+   "optimality": 5.92
   },
   {
    "iter": 65,
    "restoration": false,
    "objective": 0.08373087200000001,
-   "infeasibility": 0.00596
+   "feasibility": 0.00596,
+   "optimality": 1.33
   },
   {
    "iter": 66,
    "restoration": false,
    "objective": 0.083154035,
-   "infeasibility": 0.000506
+   "feasibility": 0.000506,
+   "optimality": 1.31
   },
   {
    "iter": 67,
    "restoration": false,
    "objective": 0.08286752800000001,
-   "infeasibility": 0.000867
+   "feasibility": 0.000867,
+   "optimality": 1.4
   },
   {
    "iter": 68,
    "restoration": false,
    "objective": 0.08237766499999999,
-   "infeasibility": 0.000969
+   "feasibility": 0.000969,
+   "optimality": 0.764
   },
   {
    "iter": 69,
    "restoration": false,
    "objective": 0.082497215,
-   "infeasibility": 0.00029
+   "feasibility": 0.00029,
+   "optimality": 0.554
   },
   {
    "iter": 70,
    "restoration": false,
    "objective": 0.082358811,
-   "infeasibility": 5.2e-05
+   "feasibility": 5.2e-05,
+   "optimality": 0.361
   },
   {
    "iter": 71,
    "restoration": false,
    "objective": 0.082241534,
-   "infeasibility": 3.8e-05
+   "feasibility": 3.8e-05,
+   "optimality": 0.288
   },
   {
    "iter": 72,
    "restoration": false,
    "objective": 0.082242389,
-   "infeasibility": 3.5e-05
+   "feasibility": 3.5e-05,
+   "optimality": 0.177
   },
   {
    "iter": 73,
    "restoration": false,
    "objective": 0.079317792,
-   "infeasibility": 0.00771
+   "feasibility": 0.00771,
+   "optimality": 1.27
   },
   {
    "iter": 74,
    "restoration": false,
    "objective": 0.078591479,
-   "infeasibility": 0.0251
+   "feasibility": 0.0251,
+   "optimality": 2.47
   },
   {
    "iter": 75,
    "restoration": false,
    "objective": 0.07854865400000001,
-   "infeasibility": 0.000979
+   "feasibility": 0.000979,
+   "optimality": 0.811
   },
   {
    "iter": 76,
    "restoration": false,
    "objective": 0.078551717,
-   "infeasibility": 0.000225
+   "feasibility": 0.000225,
+   "optimality": 0.275
   },
   {
    "iter": 77,
    "restoration": false,
    "objective": 0.078565598,
-   "infeasibility": 4.16e-05
+   "feasibility": 4.16e-05,
+   "optimality": 0.115
   },
   {
    "iter": 78,
    "restoration": false,
    "objective": 0.078560384,
-   "infeasibility": 1.82e-05
+   "feasibility": 1.82e-05,
+   "optimality": 0.108
   },
   {
    "iter": 79,
    "restoration": false,
    "objective": 0.078557483,
-   "infeasibility": 1.21e-05
+   "feasibility": 1.21e-05,
+   "optimality": 0.0632
   },
   {
    "iter": 80,
    "restoration": false,
    "objective": 0.07855634,
-   "infeasibility": 6.53e-07
+   "feasibility": 6.53e-07,
+   "optimality": 0.0144
   },
   {
    "iter": 81,
    "restoration": false,
    "objective": 0.078361489,
-   "infeasibility": 0.000134
+   "feasibility": 0.000134,
+   "optimality": 0.489
   },
   {
    "iter": 82,
    "restoration": false,
    "objective": 0.078343984,
-   "infeasibility": 0.00163
+   "feasibility": 0.00163,
+   "optimality": 0.37
   },
   {
    "iter": 83,
    "restoration": false,
    "objective": 0.07833573,
-   "infeasibility": 0.00134
+   "feasibility": 0.00134,
+   "optimality": 0.0787
   },
   {
    "iter": 84,
    "restoration": false,
    "objective": 0.078340584,
-   "infeasibility": 5.89e-05
+   "feasibility": 5.89e-05,
+   "optimality": 0.0679
   },
   {
    "iter": 85,
    "restoration": false,
    "objective": 0.078341304,
-   "infeasibility": 1.53e-06
+   "feasibility": 1.53e-06,
+   "optimality": 0.0255
   },
   {
    "iter": 86,
    "restoration": false,
    "objective": 0.078341276,
-   "infeasibility": 7.64e-07
+   "feasibility": 7.64e-07,
+   "optimality": 0.00613
   },
   {
    "iter": 87,
    "restoration": false,
    "objective": 0.078341345,
-   "infeasibility": 5.18e-08
+   "feasibility": 5.18e-08,
+   "optimality": 0.000615
   },
   {
    "iter": 88,
    "restoration": false,
    "objective": 0.078333757,
-   "infeasibility": 2.11e-06
+   "feasibility": 2.11e-06,
+   "optimality": 0.0129
   },
   {
    "iter": 89,
    "restoration": false,
    "objective": 0.078333713,
-   "infeasibility": 1.13e-07
+   "feasibility": 1.13e-07,
+   "optimality": 0.00199
   },
   {
    "iter": 90,
    "restoration": false,
    "objective": 0.078333707,
-   "infeasibility": 1.06e-08
+   "feasibility": 1.06e-08,
+   "optimality": 0.000504
   },
   {
    "iter": 91,
    "restoration": false,
    "objective": 0.078333707,
-   "infeasibility": 7.05e-10
+   "feasibility": 7.05e-10,
+   "optimality": 0.000267
   },
   {
    "iter": 92,
    "restoration": false,
    "objective": 0.078333707,
-   "infeasibility": 6.63e-10
+   "feasibility": 6.63e-10,
+   "optimality": 0.000115
   },
   {
    "iter": 93,
    "restoration": false,
    "objective": 0.078333707,
-   "infeasibility": 7.22e-11
+   "feasibility": 7.22e-11,
+   "optimality": 1.08e-05
   },
   {
    "iter": 94,
    "restoration": false,
    "objective": 0.078333615,
-   "infeasibility": 5.09e-10
+   "feasibility": 5.09e-10,
+   "optimality": 2.31e-05
   },
   {
    "iter": 95,
    "restoration": false,
    "objective": 0.078333615,
-   "infeasibility": 1.73e-12
+   "feasibility": 1.73e-12,
+   "optimality": 1.12e-06
   },
   {
    "iter": 96,
    "restoration": false,
    "objective": 0.078333615,
-   "infeasibility": 1.18e-14
+   "feasibility": 1.18e-14,
+   "optimality": 2.31e-07
   },
   {
    "iter": 97,
    "restoration": false,
    "objective": 0.078333615,
-   "infeasibility": 8.88e-16
+   "feasibility": 8.88e-16,
+   "optimality": 3.8e-08
   },
   {
    "iter": 98,
    "restoration": false,
    "objective": 0.078333615,
-   "infeasibility": 4.44e-16
+   "feasibility": 4.44e-16,
+   "optimality": 2.27e-09
   }
  ]
 }

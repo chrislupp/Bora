@@ -3,18 +3,19 @@
  *
  * Results are drawn the way section characteristics were always published:
  * on the engineer's graph sheet, in black ink, with a title block naming the
- * section. The orange of the ruled sheet is the only colour. It rules the
- * figures and underlines what can be followed or is current; it never sets
- * text. Data series are told apart by plot symbol and states by line type.
+ * section. The orange of the ruled sheet is the only colour outside code
+ * listings, which are highlighted in muted drafting inks (src/prism.ts). It
+ * rules the figures and underlines what can be followed or is current; it
+ * never sets text. Data series are told apart by plot symbol and states by line type.
  * The sheet stays in the figures: the reading column is plain paper.
  *
  * One sans carries everything: B612, a face drawn for aircraft cockpit
  * displays, sets text, headings, chart lettering and the interface. Code is
- * set in Source Code Pro. The name alone is set in Michroma, the wide square
- * lettering of instrument panels and nameplates.
+ * set in Source Code Pro. The name alone is set in osifont, the ISO 3098
+ * lettering of technical drawings and their title blocks.
  */
 
-/* ── Typefaces (self-hosted, SIL Open Font License; see static/fonts) ──── */
+/* ── Typefaces (self-hosted; licenses in static/fonts) ─────────────────── */
 
 @font-face {
     font-family: "B612";
@@ -45,11 +46,11 @@
     src: url("../../static/fonts/b612-700-italic-latin.woff2") format("woff2");
 }
 @font-face {
-    font-family: "Michroma";
+    font-family: "osifont";
     font-style: normal;
     font-weight: 400;
     font-display: swap;
-    src: url("../../static/fonts/michroma-400-latin.woff2") format("woff2");
+    src: url("../../static/fonts/osifont-400-latin.woff2") format("woff2");
 }
 @font-face {
     font-family: "Source Code Pro";
@@ -81,7 +82,7 @@
     --bora-rule-heavy: 2px solid var(--bora-ink);
 
     --bora-font-ui: "B612", "Verdana", "DejaVu Sans", sans-serif;
-    --bora-font-title: "Michroma", "Eurostile", "B612", sans-serif;
+    --bora-font-title: "osifont", "ISOCPEUR", "B612", sans-serif;
     --bora-font-code: "Source Code Pro", "DejaVu Sans Mono", Menlo, monospace;
 
     /* 56 squares of the sheet, so figures fill the column at full scale. */
@@ -227,7 +228,7 @@ a:hover {
 
 .navbar__title {
     font-family: var(--bora-font-title);
-    font-size: 1.3rem;
+    font-size: 1.55rem;
     font-weight: 400;
     letter-spacing: 0.12em;
     text-transform: uppercase;
