@@ -1,0 +1,174 @@
+---
+sidebar_position: 1
+title: "How NeuralFoil works"
+description: "The model behind Bora: input encoding, the network, the angle-of-attack symmetry, output decoding and the confidence correction."
+---
+
+import Pipeline from "@site/src/components/Pipeline";
+
+# How NeuralFoil works
+
+This page describes the model Bora evaluates. The design is Peter Sharpe's,
+and the authoritative account is the NeuralFoil paper
+([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)) together with
+the chapter on NeuralFoil in his thesis
+([Sharpe, 2024](../references.md#sharpe-thesis)). What follows is a summary
+for users of Bora, with the exact transformations as Bora implements them in
+`src/neuralfoil.rs`.
+
+## A learned core inside a physical frame
+
+NeuralFoil is a neural network trained to reproduce XFoil
+([Drela, 1989](../references.md#xfoil)). The network itself is small and
+ordinary. What makes the model work is the structure around it, which builds
+known aerodynamics into the calculation so that the network has less to learn
+and extrapolates sensibly. Sharpe describes the result as physics-informed
+machine learning, while noting that it is not a "PINN" in the usual sense of
+a network trained on the residual of a differential equation.
+
+An analysis runs in five steps.
+
+<Pipeline />
+
+## Encoding
+
+The 23 user inputs become a vector of 25 numbers, the network's input. The
+18 shape parameters pass through almost unchanged. The operating point is
+transformed:
+
+| Network input | Computed from | Why |
+|---------------|---------------|-----|
+| 8 upper and 8 lower weights, leading-edge weight | Unchanged | |
+| $50\,t_{TE}$ | Trailing-edge thickness | Brings it to the same scale as the weights |
+| $\sin 2\alpha$ | Angle of attack | Proportional to lift in simple post-stall models |
+| $\cos\alpha$ | Angle of attack | Completes a periodic description of the angle |
+| $\sin^2\alpha$ | Angle of attack | Proportional to drag in simple post-stall models |
+| $(\ln Re - 12.5)/3.5$ | Reynolds number | Drag follows power laws in $Re$, which are straight lines in $\ln Re$ |
+| $(N_\mathrm{crit} - 9)/4.5$ | Critical amplification factor | Centered and scaled |
+| $x_{tr,u}$, $x_{tr,l}$ | Forced transition locations | Unchanged |
+
+The scalings center typical inputs near zero with a spread near one, which
+helps training. The trigonometric encoding of the angle of attack makes the
+model periodic in $\alpha$ by construction: 0° and 360° are the same input.
+Taking the logarithm of the Reynolds number, together with the logarithm of
+the drag on the output side, means that a straight line in the network's
+coordinates is a power law in physical ones, which is what boundary-layer
+theory predicts for both laminar and turbulent skin friction.
+
+## The network
+
+The 25 inputs pass through a fully connected network to 198 outputs. Each
+hidden layer applies a weight matrix and bias and then the Swish activation,
+
+$$
+\sigma(x) = \frac{x}{1 + e^{-x}} .
+$$
+
+Swish is smooth everywhere, so the whole model is infinitely differentiable,
+which is what makes its gradients useful to an optimizer. It also grows
+linearly for large arguments, so far from the training data the network tends
+toward a straight line rather than flattening out, which suits the logarithmic
+encodings above. The eight [network sizes](../guide/model-sizes.md) differ
+only in the number of hidden layers (2 to 6) and their width (48 to 512).
+
+## Symmetry {/* #symmetry */}
+
+Flip an airfoil top to bottom and negate the angle of attack, and the flow is
+the mirror image of the original: the lift and moment change sign, the drag
+does not, and the upper and lower surfaces trade places. A plain network
+would only learn this approximately.
+
+NeuralFoil enforces it exactly. Every analysis evaluates the network twice,
+once for the airfoil as given and once for its mirror image at $-\alpha$, maps
+the second result back, and averages the two. In terms of the network $f$ and
+the mirror operations $M_\mathrm{in}$ and $M_\mathrm{out}$,
+
+$$
+z_\mathrm{out} = \tfrac{1}{2}\left[\, f(z_\mathrm{in})
++ M_\mathrm{out}\, f(M_\mathrm{in}\, z_\mathrm{in}) \,\right] .
+$$
+
+The average is symmetric by construction, whatever $f$ is. This is why a
+symmetric section at zero angle of attack returns exactly zero lift and
+moment. Bora evaluates the pair in a single pass over the weights, so the two
+evaluations cost less than twice one.
+
+## Decoding
+
+The 198 network outputs are six scalars followed by six boundary-layer
+distributions of 32 values each. They are converted to physical quantities as
+follows, writing $z$ for the corresponding network output.
+
+| Quantity | Decoding |
+|----------|----------|
+| Analysis confidence | Logistic function of $z$ after the distance correction below |
+| $C_L$ | $z/2$ |
+| $C_D$ | $\exp\!\big(2\,(z - 2)\big)$ |
+| $C_M$ | $z/20$ |
+| Transition locations | $z$ clipped to $[0, 1]$ |
+| Momentum thickness $\theta$ | $\dfrac{10^{z} - 0.1}{\lvert u_e/V_\infty\rvert\; Re}$ |
+| Shape factor $H$ | $2.6\, e^{z}$ |
+| Edge velocity $u_e/V_\infty$ | $z$ |
+
+The exponential guarantees a positive drag coefficient. The momentum
+thickness is learned through a Reynolds number based on it, $Re_\theta$, and
+the shape factor relative to its laminar flat-plate value of 2.6; in both
+cases the network predicts a quantity that varies far less across the
+training data than the raw one.
+
+## Confidence {/* #confidence */}
+
+The first network output is a logit: the logarithm of the odds that XFoil
+would converge for this case. Before it is turned into a probability, a term
+is subtracted that grows with the distance of the query from the training
+data,
+
+$$
+\text{confidence} = \operatorname{logistic}\!\left(
+z_0 - \frac{(z_\mathrm{in} - \mu)^\mathsf{T}\, S^{-1}\, (z_\mathrm{in} - \mu)}{2 N}
+\right), \qquad N = 25 ,
+$$
+
+where $\mu$ and $S$ are the mean and covariance of the training inputs in the
+encoded space. The numerator is a squared Mahalanobis distance: a distance
+measured in units of the data's own spread along each direction.
+
+Without this term nothing would force the confidence down far from the data,
+since a network's raw output can drift anywhere. With it, the confidence is
+guaranteed to tend to zero in every direction, because the quadratic
+eventually dominates the roughly linear growth of the logit. For a query
+drawn from the training distribution the term averages to 0.5, a small
+correction. The same term was present during training, so it does not distort
+the model inside the data.
+
+Bora stores $\mu$ and $S^{-1}$ in `scaled_input_distribution.h5` and applies
+the correction to both of the mirrored evaluations before they are averaged.
+
+## Training
+
+Bora does not train anything; it uses NeuralFoil's published weights. For
+context, the paper reports the following.
+
+- **Data.** 7.9 million XFoil cases on synthetic airfoils, each made by
+  blending three airfoils from a database of about 2,000, scaling the
+  thickness and perturbing the Kulfan parameters. Angle of attack, Reynolds
+  number, $N_\mathrm{crit}$ and forced transition were drawn at random. All
+  cases are incompressible.
+- **Convergence.** 56% of the cases converged in XFoil. The rest were not
+  used to train the physical outputs, but whether a case converged is exactly
+  the label the confidence output learns.
+- **Split.** 95% of the data trained the networks; 5% was held back to measure
+  the accuracies quoted in [Choosing a network size](../guide/model-sizes.md).
+- **Loss.** A Huber loss on the encoded outputs, weighted most heavily toward
+  drag. Sharpe notes that drag accuracy improved when the boundary-layer
+  outputs were given some weight too, rather than training on drag alone.
+
+## What Bora adds
+
+Bora implements the five steps above so that they reproduce Python NeuralFoil
+0.3.3, and it differentiates them. The forward-mode path carries a 23-column
+Jacobian through every layer alongside the values. The reverse-mode path
+propagates one adjoint per scalar output backward through the layers. Both
+are written by hand against the same kernels as the value computation; no
+automatic-differentiation library is involved. See
+[Gradients](../guide/gradients.md).

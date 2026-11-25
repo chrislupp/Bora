@@ -1,0 +1,170 @@
+---
+sidebar_position: 1
+title: "Airfoil geometry"
+description: "The 18-parameter Kulfan (CST) shape description Bora uses, and how to convert to and from coordinates."
+---
+
+import KulfanModes from "@site/src/components/KulfanModes";
+
+# Airfoil geometry
+
+Bora does not take airfoil coordinates. It takes 18 numbers that describe the
+shape, a Kulfan parameterization, also called CST for class-shape
+transformation ([Kulfan, 2008](../references.md#kulfan-2008)). This is the
+shape description NeuralFoil's networks were trained on, so it is the only one
+they accept ([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
+
+```rust
+pub struct KulfanParameters {
+    pub upper_weights: [f64; 8],
+    pub lower_weights: [f64; 8],
+    pub leading_edge_weight: f64,
+    pub te_thickness: f64,
+}
+```
+
+## The parameterization
+
+Each surface is a smooth curve from the leading edge at $x = 0$ to the
+trailing edge at $x = 1$. The upper surface is
+
+$$
+y_u(x) = \underbrace{\sqrt{x}\,(1 - x)}_{\text{class function}}
+\sum_{k=0}^{7} w_{u,k}\, B_k(x)
+\;+\; w_{LE}\; x\,(1 - x)^{8.5}
+\;+\; \frac{t_{TE}}{2}\, x ,
+$$
+
+and the lower surface $y_l(x)$ has the same form with its own weights
+$w_{l,k}$ and the trailing-edge term subtracted instead of added. The
+$B_k$ are the Bernstein polynomials of degree 7,
+
+$$
+B_k(x) = \binom{7}{k}\, x^k (1 - x)^{7-k} .
+$$
+
+Reading the terms from left to right:
+
+- The **class function** $\sqrt{x}(1-x)$ gives every shape a round nose and a
+  closed trailing edge.
+- The **eight weights per surface** scale eight overlapping bumps. Weight 0
+  acts near the leading edge and weight 7 near the trailing edge; the weight at
+  the nose sets the leading-edge radius. Lower-surface weights are negative
+  for a conventional section, and a symmetric section has
+  $w_{l,k} = -w_{u,k}$.
+- The **leading-edge weight** $w_{LE}$ adds a mode concentrated in the first
+  few percent of chord, which sharpens the fit near the nose. It applies to
+  both surfaces with the same sign, so it shifts the nose up or down.
+- The **trailing-edge thickness** $t_{TE}$ is the gap between the surfaces at
+  $x = 1$, in chord lengths.
+
+<KulfanModes />
+
+Two properties make this a good basis for a surrogate. It is compact: studies
+of parameterization methods find that aerodynamic prediction error falls off
+sharply at about this many parameters
+([Masters et al., 2017](../references.md#masters-2017)). And it is linear in
+the weights, so fitting it to coordinates is a linear least-squares problem.
+
+## From coordinates to parameters
+
+`FittedAirfoil` goes from a coordinate file to an analysis:
+
+```rust
+use bora::{FittedAirfoil, ModelSize, NeuralFoil, OperatingPoint};
+
+fn main() -> bora::Result<()> {
+    let airfoil = FittedAirfoil::from_dat_file("my_airfoil.dat")?;
+    println!("{:#?}", airfoil.kulfan);
+
+    let model = NeuralFoil::new(ModelSize::XLarge)?;
+    let point = OperatingPoint { alpha: 3.0, re: 1e6, ..OperatingPoint::default() };
+    let aero = model.analyze_airfoil(&airfoil, &point);
+    println!("CL = {:.4}", aero.cl);
+    Ok(())
+}
+```
+
+It does three things, each of which is also a function of its own.
+
+1. **Read.** `read_dat_file` (or `parse_dat` for text already in memory) takes
+   every line that holds exactly two numbers as a point and skips the rest, so
+   a name line, blank lines and comments are ignored. Numbers may be separated
+   by spaces, tabs, commas or semicolons.
+2. **Normalize.** `normalize_coordinates` moves the leading edge to $(0, 0)$,
+   scales the chord to 1 and rotates the trailing edge onto the $x$ axis. The
+   trailing edge is the midpoint of the first and last points, and the leading
+   edge is the point farthest from it. The translation, scale factor and
+   rotation are returned with the new coordinates.
+3. **Fit.** `fit_kulfan_parameters` fits the 18 parameters to the normalized
+   points by linear least squares.
+
+These are the steps of NeuralFoil's `get_aero_from_coordinates` and
+`get_aero_from_dat_file` ([Sharpe, 2023](../references.md#neuralfoil-repository)).
+`FittedAirfoil::from_coordinates` does the last two for points you already
+hold.
+
+### Airfoils that are not normalized
+
+Coordinates with built-in incidence, a chord other than 1 or an offset origin
+describe the same section in another frame. `analyze_airfoil` accounts for the
+difference, as upstream does: it adds the rotation to the angle of attack,
+rescales the Reynolds number to the chord (the `re` of the `OperatingPoint` is
+based on the unit length of the coordinates), and moves the moment coefficient
+back to the quarter-chord point of the original airfoil. `FittedAirfoil::input`
+and `FittedAirfoil::transfer_cm` expose the two halves, for use with the other
+analysis calls:
+
+```rust
+let input = airfoil.input(&point);             // an AeroInput
+let result = model.analyze_with_gradients(&input);
+let out = &result.output;
+let cm = airfoil.transfer_cm(out.cl, out.cd, out.cm);
+```
+
+### Fitting directly
+
+`fit_kulfan_parameters` alone makes three assumptions about its input. It does
+not check them, and a violation gives a poor fit rather than an error.
+
+1. **Selig ordering.** Points run from the upper-surface trailing edge, forward
+   around the leading edge, and back along the lower surface.
+2. **Normalized chord.** The leading edge is at $(0, 0)$ and the trailing edge
+   at $x = 1$. The function does not translate, rotate or scale the points;
+   use `normalize_coordinates` or `FittedAirfoil` if yours are not in this
+   form.
+3. **Enough points.** At least 18 are required; real coordinate files have
+   far more.
+
+If the least-squares solution has a negative trailing-edge thickness, the fit
+is repeated with the thickness fixed at zero. The function returns
+`Error::InvalidArgument` for too few points and `Error::SingularFit` if the
+problem is degenerate.
+
+:::warning Check the fit
+An 18-parameter curve cannot follow every shape. Sections with flat segments,
+sharp corners, cusps or deflected flaps are reproduced only approximately, and
+the network then analyzes the fitted shape, not yours. Regenerate coordinates
+from the fitted parameters and compare them with the originals before relying
+on the result.
+:::
+
+## From parameters to coordinates
+
+`generate_kulfan_coordinates` goes the other way, for plotting or for export
+to another tool:
+
+```rust
+use bora::generate_kulfan_coordinates;
+
+// 100 points per surface, cosine-spaced, in Selig order: 199 points in all.
+let coordinates = generate_kulfan_coordinates(&kulfan, 100)?;
+for [x, y] in &coordinates {
+    println!("{x:.6} {y:.6}");
+}
+```
+
+It returns `2 n - 1` points for `n` points per side, because the two surfaces
+share the leading-edge point. Both functions follow the corresponding routines
+in AeroSandbox ([Sharpe, 2021](../references.md#aerosandbox)), so parameters
+are interchangeable between Bora, NeuralFoil and AeroSandbox.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
 ### Added
 
 - Corrected analysis, a port of AeroSandbox's `KulfanAirfoil.get_aero_from_neuralfoil`:
@@ -210,5 +212,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `serialize-javascript` ^7.0.5 (GHSA-5c6j-r48x-rmvq, GHSA-qj8w-gfj5-8c6v) and `uuid`
   ^11.1.1 (GHSA-w5hq-g745-h8pq); `npm audit` reports no vulnerabilities
 [0.1.0]: https://github.com/chrislupp/Bora/releases/tag/v0.1.0
-[Unreleased]: https://github.com/chrislupp/Bora/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/chrislupp/Bora/releases/tag/v0.2.0
+[Unreleased]: https://github.com/chrislupp/Bora/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/chrislupp/Bora/releases/tag/v0.3.0
