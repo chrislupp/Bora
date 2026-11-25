@@ -25,7 +25,7 @@ const sidebars: SidebarsConfig = {
             "guide/philote",
         ]),
         chapter("Background", ["background/how-it-works", "background/accuracy-and-limits"]),
-        chapter("Examples", ["examples/analysis", "examples/polar", "examples/optimization"]),
+        chapter("Examples", ["examples/analysis", "examples/polar", "examples/openmdao"]),
         "references",
     ],
     apiSidebar: ["api/index"],

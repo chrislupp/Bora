@@ -29,7 +29,10 @@ cargo bench -- medium xlarge
 # Run examples
 cargo run --release --example example
 cargo run --release --example polar
-cargo run --release --example optimize_airfoil
+
+# OpenMDAO + IPOPT over Philote (needs openmdao, philote-mdo, pyoptsparse with IPOPT;
+# starts bora_server itself)
+python3 examples/openmdao/optimize_daedalus.py
 ```
 
 ### Linting and Formatting
@@ -77,16 +80,22 @@ npm run serve    # Serve production build locally
   - `src/components/` -- figures drawn in code (`plot.tsx` holds the shared graph-sheet pieces)
   - `src/data/polar.json` -- figure data; regenerate with
     `cargo run --release --example polar -- --json > docs/src/data/polar.json`
+  - `src/data/optimization.json` -- figure data of the OpenMDAO example; regenerate with
+    `python3 examples/openmdao/optimize_daedalus.py --json docs/src/data/optimization.json`
 - `docs/static/` -- Static assets (favicon, self-hosted fonts with their OFL licenses)
 
 ### Content and design rules
 - Facts about NeuralFoil (how it works, training, accuracy) are paraphrased and cited to
   `docs/docs/references.md` at the point of use; never copy upstream text
 - Program output shown in the docs is real: rerun the example and paste the result
-- Theme: paper, black ink, and the orange ruling of a graph sheet. Orange rules the plates and
+- Theme: paper, black ink, and the orange ruling of a graph sheet. Orange rules the figures and
   underlines links and selections; it never sets text. Charts are scaled so the sheet's rulings
   are the chart's grid; series differ by symbol and states by line type, not colour. The grid
-  stays inside plates, never behind running text
+  stays inside figures, never behind running text
+- Charts: left and bottom axes only (no top or right spines); axis titles go on the axes (the
+  y title rotated beside its numerals, via `Chart`'s `xTitle`/`yTitle`), never as text inside
+  the plot area; a figure's charts are stacked at full column width, not shrunk side by side.
+  They are called figures ("Figure N." captions), never plates
 - New doc pages exist only under `/docs/next/` until a release; links from the home page go
   through `src/lib/useDocPath.ts`, and footer links must point at pages that exist in the
   latest released version

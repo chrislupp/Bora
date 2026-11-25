@@ -86,6 +86,6 @@ The distance term also has a convenient shape for this purpose: it is a
 positive-definite quadratic in the encoded inputs, which makes the region of
 high confidence close to convex and well behaved as a constraint.
 
-The [optimization example](../examples/optimization.mdx) uses exactly this
-penalty, and reports that it also keeps the optimized shape physically
-reasonable.
+With a constrained optimizer, impose it directly instead:
+[Multipoint optimization with OpenMDAO](../examples/openmdao.mdx) holds the
+confidence at or above 0.90 at every operating point as an IPOPT constraint.

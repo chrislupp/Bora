@@ -5,7 +5,7 @@ import styles from "./styles.module.css";
 
 /*
  * The section characteristics of the quickstart airfoil at three Reynolds
- * numbers, as a static plate. Every number shown is Bora output computed
+ * numbers, as a static figure. Every number shown is Bora output computed
  * ahead of time; regenerate the data with
  *
  *   cargo run --release --example polar -- --json > docs/src/data/polar.json
@@ -102,7 +102,7 @@ function LiftChart({ x0, y0 }: { x0: number; y0: number }): ReactNode {
                 yTicks={[0, 0.5, 1, 1.5]}
                 yFormat={(v) => (v === 0 ? "0" : v.toFixed(1))}
                 xTitle="Angle of attack, degrees"
-                title="Section lift coefficient"
+                yTitle="Section lift coefficient"
             />
             {series.map((entry, k) => (
                 <g key={entry.re}>
@@ -148,7 +148,7 @@ function DragChart({ x0, y0 }: { x0: number; y0: number }): ReactNode {
                 xFormat={(v) => (v === 0 ? "0" : v.toFixed(2))}
                 yFormat={(v) => (v === 0 ? "0" : v.toFixed(1))}
                 xTitle="Section drag coefficient"
-                title="Drag polar"
+                yTitle="Section lift coefficient"
             />
             {series.map((entry, k) => (
                 <g key={entry.re}>
@@ -178,13 +178,13 @@ const dragLabel = `Drag polar at three Reynolds numbers. At ${marked.alpha} degr
 const tableRows = [-8, -4, 0, 4, 8].map((offset) => rows[markedIndex + offset]);
 
 export default function PolarFigure({
-    variant = "plates",
+    variant = "column",
     caption,
     className,
     children,
 }: {
-    /** "sheet" is the page-wide home page plate; "plates" fits the reading column. */
-    variant?: "sheet" | "plates";
+    /** "sheet" is the page-wide home page figure; "column" fits the reading column. */
+    variant?: "sheet" | "column";
     caption?: ReactNode;
     className?: string;
     /** On the sheet, the text lettered under the name in the title block. */
@@ -266,12 +266,12 @@ export default function PolarFigure({
                             <LiftChart x0={10 * U} y0={23 * U} />
                         </g>
                         <g role="img" aria-label={dragLabel}>
-                            <DragChart x0={42 * U} y0={23 * U} />
+                            <DragChart x0={44 * U} y0={23 * U} />
                         </g>
                     </svg>
                 )}
 
-                <div className={`bora-plate ${styles.plates}`}>
+                <div className={`bora-panel ${styles.panels}`}>
                     <svg
                         className={`bora-plot ${styles.profile}`}
                         viewBox={`0 0 ${56 * U} ${16 * U}`}
@@ -292,21 +292,21 @@ export default function PolarFigure({
                     </svg>
                     <svg
                         className={`bora-plot ${styles.lift}`}
-                        viewBox={`0 0 ${30 * U} ${32 * U}`}
+                        viewBox={`0 0 ${33 * U} ${32 * U}`}
                         role="img"
                         aria-label={liftLabel}
                     >
-                        <Sheet width={30 * U} height={32 * U} />
-                        <LiftChart x0={3 * U} y0={2 * U} />
+                        <Sheet width={33 * U} height={32 * U} />
+                        <LiftChart x0={6 * U} y0={2 * U} />
                     </svg>
                     <svg
                         className={`bora-plot ${styles.drag}`}
-                        viewBox={`0 0 ${26 * U} ${32 * U}`}
+                        viewBox={`0 0 ${29 * U} ${32 * U}`}
                         role="img"
                         aria-label={dragLabel}
                     >
-                        <Sheet width={26 * U} height={32 * U} />
-                        <DragChart x0={4 * U} y0={2 * U} />
+                        <Sheet width={29 * U} height={32 * U} />
+                        <DragChart x0={7 * U} y0={2 * U} />
                     </svg>
                 </div>
 

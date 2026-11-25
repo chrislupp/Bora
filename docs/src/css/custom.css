@@ -4,9 +4,9 @@
  * Results are drawn the way section characteristics were always published:
  * on the engineer's graph sheet, in black ink, with a title block naming the
  * section. The orange of the ruled sheet is the only colour. It rules the
- * plates and underlines what can be followed or is current; it never sets
+ * figures and underlines what can be followed or is current; it never sets
  * text. Data series are told apart by plot symbol and states by line type.
- * The sheet stays in the plates: the reading column is plain paper.
+ * The sheet stays in the figures: the reading column is plain paper.
  *
  * One sans carries everything: B612, a face drawn for aircraft cockpit
  * displays, sets text, headings, chart lettering and the interface. Code is
@@ -73,8 +73,8 @@
     --bora-ink: #151515;
     /* The ruling of the graph sheet, and a deeper cut of it for lines that
        must meet 3:1 against the paper (underlines, focus rings). */
-    --bora-grid: #e8762c;
-    --bora-grid-minor: rgba(232, 118, 44, 0.42);
+    --bora-grid: rgba(232, 118, 44, 0.6);
+    --bora-grid-minor: rgba(232, 118, 44, 0.24);
     --bora-rule-orange: #cf5a12;
 
     --bora-rule: 1px solid var(--bora-ink);
@@ -84,7 +84,7 @@
     --bora-font-title: "Michroma", "Eurostile", "B612", sans-serif;
     --bora-font-code: "Source Code Pro", "DejaVu Sans Mono", Menlo, monospace;
 
-    /* 56 squares of the sheet, so plates fill the column at full scale. */
+    /* 56 squares of the sheet, so figures fill the column at full scale. */
     --bora-measure: 42rem;
 
     /* Infima */
@@ -173,8 +173,8 @@
 [data-theme="dark"] {
     --bora-paper: #151515;
     --bora-ink: #f1efe9;
-    --bora-grid: rgba(232, 118, 44, 0.44);
-    --bora-grid-minor: rgba(232, 118, 44, 0.18);
+    --bora-grid: rgba(232, 118, 44, 0.32);
+    --bora-grid-minor: rgba(232, 118, 44, 0.13);
     --bora-rule-orange: #f08a45;
     --docusaurus-highlighted-code-line-bg: rgba(232, 118, 44, 0.22);
 }
@@ -343,7 +343,7 @@ a:hover {
 
 .markdown,
 .bora-book {
-    counter-reset: plate table;
+    counter-reset: figure table;
 }
 
 .markdown {
@@ -531,7 +531,7 @@ code {
     }
 }
 
-/* Numbered captions. A table's caption is set above it, a plate's below. */
+/* Numbered captions. A table's caption is set above it, a figure's below. */
 .bora-table-caption,
 .bora-figure figcaption {
     font-family: var(--bora-font-ui);
@@ -553,10 +553,10 @@ code {
     display: inline;
 }
 
-/* ── Plates ───────────────────────────────────────────────────────────── */
+/* ── Figures ──────────────────────────────────────────────────────────── */
 
 .bora-figure {
-    counter-increment: plate;
+    counter-increment: figure;
     margin: 2rem 0 2.25rem;
 }
 
@@ -565,12 +565,12 @@ code {
 }
 
 .bora-figure figcaption::before {
-    content: "Plate " counter(plate) ". ";
+    content: "Figure " counter(figure) ". ";
     font-weight: 700;
 }
 
-/* A plate is a piece of the graph sheet with an ink border. */
-.bora-plate {
+/* A figure's panel is a piece of the graph sheet with an ink border. */
+.bora-panel {
     border: var(--bora-rule-heavy);
     background: var(--bora-paper);
 }

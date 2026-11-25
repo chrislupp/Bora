@@ -6,5 +6,8 @@
 # Cargo build output
 /target/
 
-# Written by examples/optimize_airfoil.rs
-optimized_airfoil.dat
+# Written by examples/openmdao/optimize_daedalus.py
+optimized_daedalus.dat
+
+# Python bytecode
+__pycache__/

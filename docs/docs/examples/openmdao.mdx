@@ -1,0 +1,196 @@
+---
+sidebar_position: 3
+sidebar_label: "Optimization"
+title: "Multipoint optimization with OpenMDAO"
+description: "The NeuralFoil human-powered-aircraft airfoil case, solved with OpenMDAO and IPOPT, with Bora served over Philote."
+---
+
+import {
+    Convergence,
+    OptimizedSections,
+    SchedulePolars,
+} from "@site/src/components/OptimizationFigures";
+
+# Multipoint optimization with OpenMDAO
+
+`examples/openmdao/optimize_daedalus.py` designs an airfoil for a
+human-powered aircraft. It is the case the NeuralFoil paper uses to show
+optimization with NeuralFoil
+([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)), built on a
+problem from Drela's study of airfoil optimization
+([Drela, 1998](../references.md#drela-1998)). Here
+[OpenMDAO](https://openmdao.org) runs the model, IPOPT (through pyOptSparse)
+solves it, and Bora runs as a separate process behind the
+[Philote discipline](../guide/philote.md).
+
+## Requirements
+
+- OpenMDAO and Philote-Python (`philote-mdo` on PyPI), listed in
+  `examples/openmdao/requirements.txt`
+- pyOptSparse built with IPOPT. The conda-forge package includes it:
+  `conda install -c conda-forge pyoptsparse`
+- A Rust toolchain. The script starts `bora_server` through
+  `cargo run --features philote`, so the first run also builds the server
+
+From the repository root:
+
+```bash
+pip install -r examples/openmdao/requirements.txt
+python3 examples/openmdao/optimize_daedalus.py
+```
+
+To use a server that is already running, pass `--server host:port`.
+`--model-size` selects the network (default `large`).
+
+## The problem
+
+The airfoil has to work across the aircraft's whole speed range, so drag is
+averaged over six lift coefficients, with more weight on the higher ones. The
+Reynolds number falls as the lift coefficient rises, holding
+$\mathrm{Re}\sqrt{C_L}$ fixed at the value for $\mathrm{Re} = 500\,000$ and
+$C_L = 1.25$.
+
+| Role | Quantity |
+|------|----------|
+| Minimize | $\frac{1}{6}\sum_i w_i\, C_{D,i}$ at $C_L = 0.8, 1.0, 1.2, 1.4, 1.5, 1.6$ with $w = 5, 6, 7, 8, 9, 10$ |
+| Subject to | $C_{L,i}$ equal to its target at each point |
+| | $C_{M,i} \ge -0.133$ and analysis confidence $\ge 0.90$ at each point |
+| | angle of attack increasing with $C_L$ |
+| | $t/c \ge 0.128$ at $x/c = 0.33$ (main spar), $t/c \ge 0.014$ at $x/c = 0.90$ (rear spar) |
+| | trailing-edge angle $\ge 6.03°$, positive thickness everywhere |
+| | wiggliness at most twice that of the starting airfoil |
+| Design variables | 16 surface weights, the leading-edge weight, one angle of attack per point (23) |
+| Fixed | zero trailing-edge thickness, $N_\mathrm{crit} = 9$, free transition |
+| Start | NACA 0012 |
+
+The formulation, the bounds on the weights and the normalization of the
+objective follow the implementation of this case in AeroSandbox's NeuralFoil
+optimization tutorial ([AeroSandbox](../references.md#aerosandbox)), so the
+optimum can be compared with the value it reports. The wiggliness is the sum
+of the squared second differences of each side's weights. The NeuralFoil paper
+recommends limiting it, and positive thickness, as good practice for airfoil
+optimization ([Sharpe and Hansman, 2025](../references.md#neuralfoil-paper)).
+
+## The model
+
+Each operating point is a Philote-Python `RemoteExplicitComponent`. All six
+connect to the same `bora_server` and receive analytic partials from it.
+Bora's discipline takes a scalar angle of attack, so the design vector of six
+angles reaches the points through `src_indices`:
+
+```python title="examples/openmdao/optimize_daedalus.py (abridged)"
+for i in range(N_POINTS):
+    name = f"point{i}"
+    model.add_subsystem(
+        name,
+        pmom.RemoteExplicitComponent(channel=channel, model_size=model_size),
+        promotes_inputs=shape_inputs,
+    )
+    model.connect("alpha", f"{name}.alpha", src_indices=[i])
+```
+
+The geometric constraints never need the network, so they are computed
+locally. `examples/openmdao/kulfan.py` evaluates the Kulfan surfaces with the
+same formula as `generate_kulfan_coordinates`. Thickness is linear in the
+weights, because the leading-edge mode cancels between the two surfaces, so
+its Jacobian is constant and the spar and positive-thickness constraints are
+passed to IPOPT as linear constraints.
+
+## IPOPT settings
+
+pyOptSparse runs IPOPT with a limited-memory quasi-Newton Hessian. The
+AeroSandbox tutorial gives IPOPT an exact Hessian through automatic
+differentiation, and two of its settings do not carry over:
+
+- **No restoration-phase start.** With `start_with_resto`, IPOPT never leaves
+  the restoration phase from the NACA 0012 and stops at an infeasible point.
+  Without it, the run converges.
+- **Longer memory and objective scaling.** The objective is about 0.08, so it
+  is scaled by `ref=0.01`, and `limited_memory_max_history` is raised from 6
+  to 50. Together these cut the run from 556 iterations to 98; either change
+  alone needed over 400.
+
+`mu_strategy = "monotone"` is kept from the tutorial. Every combination of
+these settings that converged reached the same optimum.
+
+## Result
+
+The run below omits IPOPT's iteration log and option table.
+
+```text
+Starting point (NACA 0012):
+CL target         Re    alpha       CL        CD        CM     L/D  confidence
+     0.80   6.25e+05    7.295   0.8481   0.01306   -0.0074    64.9      0.9795
+     1.00   5.59e+05    9.119   0.9849   0.01630    0.0045    60.4      0.9839
+     1.20    5.1e+05   10.943   1.0840   0.02098    0.0220    51.7      0.9836
+     1.40   4.72e+05   12.766   1.1426   0.02831    0.0407    40.4      0.9761
+     1.50   4.56e+05   13.678   1.1633   0.03379    0.0468    34.4      0.9702
+     1.60   4.42e+05   14.590   1.1763   0.04153    0.0491    28.3      0.9646
+
+objective mean(w * CD) = 0.209324
+t/c at x/c = 0.33: 0.1188   at x/c = 0.90: 0.0267
+trailing-edge angle = 15.849 deg
+wiggliness = 0.04648 (limit 0.09297)
+
+Number of Iterations....: 98
+Total seconds in IPOPT                               = 3.091
+EXIT: Optimal Solution Found.
+
+Optimized:
+CL target         Re    alpha       CL        CD        CM     L/D  confidence
+     0.80   6.25e+05    1.216   0.8000   0.00769   -0.1244   104.1      0.9663
+     1.00   5.59e+05    3.047   1.0000   0.00841   -0.1265   118.9      0.9731
+     1.20    5.1e+05    4.815   1.2000   0.00947   -0.1296   126.8      0.9740
+     1.40   4.72e+05    6.585   1.4000   0.01072   -0.1326   130.5      0.9755
+     1.50   4.56e+05    7.516   1.5000   0.01142   -0.1330   131.3      0.9756
+     1.60   4.42e+05    8.700   1.6000   0.01263   -0.1289   126.7      0.9743
+
+objective mean(w * CD) = 0.078334
+t/c at x/c = 0.33: 0.1280   at x/c = 0.90: 0.0140
+trailing-edge angle = 6.030 deg
+wiggliness = 0.09297 (limit 0.09297)
+
+Kulfan parameters:
+  upper_weights = [0.177813 0.236825 0.350829 0.337303 0.380060 0.357433 0.187523 0.216231]
+  lower_weights = [-0.102093 -0.038836 -0.017524 -0.002367  0.020386  0.018594  0.067472  0.108128]
+  leading_edge_weight = 0.349865
+
+Wrote optimized_daedalus.dat
+```
+
+The optimizer turns the symmetric NACA 0012 into a strongly cambered section
+with a nearly flat lower surface. Its thickness is set by the spars:
+at the optimum both meet their minimums exactly, as do the trailing-edge
+angle, the wiggliness limit and the moment at $C_L = 1.5$, so structure and
+manufacturing shape the design as much as the drag does.
+
+<OptimizedSections />
+
+Flying both sections along the problem's schedule, with the Reynolds number
+following the lift, shows what the camber buys. The NACA 0012 stalls near
+$C_L = 1.2$ and cannot reach four of the six targets at any angle. The
+optimized section carries lift to about 1.64 with low drag across the whole
+range. The price is a nose-down moment, held off by the limit at
+$C_L = 1.5$.
+
+<SchedulePolars />
+
+IPOPT starts far from feasible. Most of the drag comes off in three long
+steps, at iterations 10, 55 and 73, and each one costs feasibility: the
+violation jumps up and is worked back down over the following iterations.
+From iteration 75 the objective changes only in its fourth decimal, and the
+violation falls from about 10⁻³ to rounding error.
+
+<Convergence />
+
+The optimum, 0.0783, is close to the 0.0793 the AeroSandbox tutorial reports
+for the same formulation. The two analyses are not identical: the tutorial
+also passes Mach 0.03, which NeuralFoil's AeroSandbox wrapper corrects for,
+and Bora has no compressibility correction. As with any surrogate optimum,
+check the section with XFoil before using it.
+
+The data for the figures comes from the same script:
+
+```bash
+python3 examples/openmdao/optimize_daedalus.py --json docs/src/data/optimization.json
+```

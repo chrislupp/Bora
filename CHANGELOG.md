@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `examples/openmdao/optimize_daedalus.py`: multipoint airfoil optimization (the NeuralFoil
+  paper's human-powered-aircraft case) with OpenMDAO and IPOPT via pyOptSparse, using
+  `bora_server` over Philote for the aerodynamics and analytic partials, with a docs page under
+  Examples whose plates (sections, polars along the flight schedule, IPOPT convergence) are drawn
+  from the script's `--json` output
+
 - `Network::evaluate_pair`: evaluates the network at two inputs in one traversal of the
   weights, bitwise identical to two `Network::evaluate` calls
 - `cargo bench` timing harness (`benches/kernels.rs`, std only) for `NeuralFoil::analyze`,
@@ -84,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RUSTFLAGS="-C target-cpu=native"` for FMA and 256-bit vectors; CPUs without them use the
   SSE2 baseline, and builds with AVX2/FMA enabled statically skip the check. Results with and
   without FMA differ in the last bits. aarch64 is unchanged
+
+### Removed
+
+- `examples/optimize_airfoil.rs` (single-point Adam/penalty optimization) and its docs page;
+  `examples/openmdao/optimize_daedalus.py` replaces it
 
 ### Fixed
 
