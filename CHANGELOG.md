@@ -7,14 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Release workflow: the GitHub Release is now created with the `RELEASE_TOKEN` PAT (passed as
-  the action's `token` input) instead of the default `GITHUB_TOKEN`, so publishing it triggers
-  the crates.io publish workflow; 0.2.0 had to be published by a manual dispatch
-
-## [0.2.0] - 2026-11-25
-
 ### Added
 
 - Corrected analysis, a port of AeroSandbox's `KulfanAirfoil.get_aero_from_neuralfoil`:
@@ -45,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   around the full circle of angle of attack
 - Docs: "Mach number, stall and flaps" guide page; the geometry page covers coordinate files
   and airfoils that are not normalized
+
+### Fixed
+
+- Release workflow: the GitHub Release is now created with the `RELEASE_TOKEN` PAT (passed as
+  the action's `token` input) instead of the default `GITHUB_TOKEN`, so publishing it triggers
+  the crates.io publish workflow; 0.2.0 had to be published by a manual dispatch
+
+## [0.2.0] - 2026-11-25
+
+### Added
+
 - `examples/openmdao/optimize_daedalus.py`: multipoint airfoil optimization (the NeuralFoil
   paper's human-powered-aircraft case) with OpenMDAO and IPOPT via pyOptSparse, using
   `bora_server` over Philote for the aerodynamics and analytic partials, with a step-by-step
