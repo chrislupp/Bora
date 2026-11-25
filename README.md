@@ -50,13 +50,18 @@ fn main() -> bora::Result<()> {
 
 Add Bora to your project with:
 
-```toml
-[dependencies]
-bora = { git = "https://github.com/chrislupp/Bora" }
+```bash
+cargo add bora-foil
 ```
 
-See `examples/example.rs` for basic usage and `examples/optimize_airfoil.rs`
-for a full gradient-based drag minimization at fixed lift.
+The crate is published as `bora-foil`, but the library is still imported as
+`bora` (`use bora::...`).
+
+See `examples/example.rs` for basic usage, `examples/polar.rs` for a lift curve
+and drag polar, and `examples/openmdao/optimize_daedalus.py` for a multipoint
+airfoil optimization with OpenMDAO and IPOPT. The
+[documentation](https://chrislupp.github.io/Bora/) covers the model, its
+validity limits, and the API.
 
 ## Requirements
 
@@ -78,15 +83,17 @@ cargo test --all-features
 
 # Run examples
 cargo run --release --example example
-cargo run --release --example optimize_airfoil
+cargo run --release --example polar
 
 # API documentation
 cargo doc --open --all-features
 ```
 
-For the best performance on x86-64, build with
-`RUSTFLAGS="-C target-cpu=native"`, which enables the fused multiply-add
-instructions used by the network kernels (always available on aarch64).
+The network kernels use fused multiply-add (FMA) instructions. On x86-64, a
+default build detects AVX2 and FMA at run time and uses them when the CPU has
+them (falling back to SSE2 otherwise); `RUSTFLAGS="-C target-cpu=native"`
+compiles them in statically instead, skipping the check. aarch64 always has
+FMA.
 
 ### Cargo Features
 
@@ -107,9 +114,18 @@ cargo run --release --features philote --bin bora_server [address]  # default lo
 Options: `model_size` (str, default `"xlarge"`), `data_directory` (str), and
 `include_boundary_layer` (bool, default `false`).
 
+`examples/openmdao/optimize_daedalus.py` is a complete client: OpenMDAO and
+IPOPT (via pyOptSparse) solve NeuralFoil's multipoint human-powered-aircraft
+airfoil case with Bora's analytic partials over Philote. It starts the server
+itself:
+
+```bash
+python3 examples/openmdao/optimize_daedalus.py
+```
+
 ## Network Weights
 
-The neural network weights live in `data/` as HDF5 files converted from the
+NeuralFoil's network weights live in `data/` as HDF5 files converted from the
 upstream NeuralFoil `.npz` files (see `scripts/convert_weights.py`). At
 runtime the weight directory is resolved in this order:
 
@@ -129,9 +145,52 @@ analysis model are ported from NeuralFoil, and the network weights in `data/`
 are converted from its weight files. The Kulfan (CST) geometry utilities follow
 [AeroSandbox](https://github.com/peterdsharpe/AeroSandbox), also by Peter
 Sharpe. Both projects are MIT-licensed; their license notices are reproduced in
-[NOTICE](NOTICE). If you use Bora in academic work, please cite NeuralFoil.
+[NOTICE](NOTICE).
+
+## Citation
+
+If you use Bora in academic work, please cite the NeuralFoil paper
+
+```bibtex
+@misc{neuralfoil_paper,
+  title = {{NeuralFoil}: An Airfoil Aerodynamics Analysis Tool Using Physics-Informed Machine Learning},
+  author = {Peter Sharpe and R. John Hansman},
+  year = {2025},
+  eprint = {2503.16323},
+  archivePrefix = {arXiv},
+  primaryClass = {physics.flu-dyn},
+  url = {https://arxiv.org/abs/2503.16323},
+}
+```
+
+and [Peter Sharpe's PhD thesis](https://dspace.mit.edu/handle/1721.1/157809), whose
+extended chapter on NeuralFoil is its primary long-form documentation:
+
+```bibtex
+@phdthesis{aerosandbox_phd_thesis,
+   title = {Accelerating Practical Engineering Design Optimization with Computational Graph Transformations},
+   author = {Sharpe, Peter D.},
+   school = {Massachusetts Institute of Technology},
+   year = {2024},
+}
+```
 
 ## License
 
 Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). See
 [NOTICE](NOTICE) for third-party attributions.
+
+## Public Release
+
+This work has been cleared for public release, distribution unlimited, case
+number: AFRL-2026-2087.
+
+The views expressed are those of the authors and do not reflect the official
+guidance or position of the United States Government, the Department of
+Defense or of the United States Air Force.
+
+Statement from DoD: The Appearance of external hyperlinks does not constitute
+endorsement by the United States Department of Defense (DoD) of the linked
+websites, of the information, products, or services contained therein. The DoD
+does not exercise any editorial, security, or other control over the
+information you may find at these locations.

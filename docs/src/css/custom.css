@@ -1,104 +1,895 @@
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap");
+/*
+ * Bora documentation theme: the characteristic chart.
+ *
+ * Results are drawn the way section characteristics were always published:
+ * on the engineer's graph sheet, in black ink, with a title block naming the
+ * section. The orange of the ruled sheet is the only colour outside code
+ * listings, which are highlighted in muted drafting inks (src/prism.ts). It
+ * rules the figures and underlines what can be followed or is current; it
+ * never sets text. Data series are told apart by plot symbol and states by line type.
+ * The sheet stays in the figures: the reading column is plain paper.
+ *
+ * One sans carries everything: B612, a face drawn for aircraft cockpit
+ * displays, sets text, headings, chart lettering and the interface. Code is
+ * set in Source Code Pro. The name alone is set in osifont, the ISO 3098
+ * lettering of technical drawings and their title blocks.
+ */
 
-/* ── CSS custom properties for use in modules ── */
+/* ── Typefaces (self-hosted; licenses in static/fonts) ─────────────────── */
+
+@font-face {
+    font-family: "B612";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../../static/fonts/b612-400-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "B612";
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../../static/fonts/b612-400-italic-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "B612";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("../../static/fonts/b612-700-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "B612";
+    font-style: italic;
+    font-weight: 700;
+    font-display: swap;
+    src: url("../../static/fonts/b612-700-italic-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "osifont";
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url("../../static/fonts/osifont-400-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Source Code Pro";
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url("../../static/fonts/source-code-pro-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: "Source Code Pro";
+    font-style: italic;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url("../../static/fonts/source-code-pro-italic-latin.woff2") format("woff2");
+}
+
+/* ── Tokens ───────────────────────────────────────────────────────────── */
+
 :root {
-    --font-display: "Instrument Sans", sans-serif;
-    --font-mono: "JetBrains Mono", monospace;
-    --font-body: "Crimson Pro", serif;
+    --bora-paper: #fdfdfb;
+    --bora-ink: #151515;
+    /* The ruling of the graph sheet, and a deeper cut of it for lines that
+       must meet 3:1 against the paper (underlines, focus rings). */
+    --bora-grid: rgba(232, 118, 44, 0.6);
+    --bora-grid-minor: rgba(232, 118, 44, 0.24);
+    --bora-rule-orange: #cf5a12;
 
-    --ifm-color-primary: #00829e;
-    --ifm-color-primary-dark: #00748e;
-    --ifm-color-primary-darker: #006d86;
-    --ifm-color-primary-darkest: #005a6e;
-    --ifm-color-primary-light: #0090ae;
-    --ifm-color-primary-lighter: #0097b6;
-    --ifm-color-primary-lightest: #00aed2;
-    --ifm-code-font-size: 95%;
-    --ifm-font-family-base: "Instrument Sans", sans-serif;
-    --ifm-font-family-monospace: "JetBrains Mono", monospace;
-    --ifm-heading-font-family: "Instrument Sans", sans-serif;
-    --docusaurus-highlighted-code-line-bg: rgba(0, 130, 158, 0.08);
+    --bora-rule: 1px solid var(--bora-ink);
+    --bora-rule-heavy: 2px solid var(--bora-ink);
+
+    --bora-font-ui: "B612", "Verdana", "DejaVu Sans", sans-serif;
+    --bora-font-title: "osifont", "ISOCPEUR", "B612", sans-serif;
+    --bora-font-code: "Source Code Pro", "DejaVu Sans Mono", Menlo, monospace;
+
+    /* 56 squares of the sheet, so figures fill the column at full scale. */
+    --bora-measure: 42rem;
+
+    /* Infima */
+    --ifm-color-primary: var(--bora-ink);
+    --ifm-color-primary-dark: var(--bora-ink);
+    --ifm-color-primary-darker: var(--bora-ink);
+    --ifm-color-primary-darkest: var(--bora-ink);
+    --ifm-color-primary-light: var(--bora-ink);
+    --ifm-color-primary-lighter: var(--bora-ink);
+    --ifm-color-primary-lightest: var(--bora-ink);
+
+    --ifm-background-color: var(--bora-paper);
+    --ifm-background-surface-color: var(--bora-paper);
+    --ifm-font-color-base: var(--bora-ink);
+    --ifm-heading-color: var(--bora-ink);
+    --ifm-color-content-secondary: var(--bora-ink);
+    --ifm-color-emphasis-300: var(--bora-ink);
+    --ifm-toc-border-color: var(--bora-ink);
+    --ifm-hr-background-color: var(--bora-ink);
+
+    --ifm-font-family-base: var(--bora-font-ui);
+    --ifm-font-family-monospace: var(--bora-font-code);
+    --ifm-heading-font-family: var(--bora-font-ui);
+    --ifm-heading-font-weight: 700;
+    --ifm-font-size-base: 100%;
+    --ifm-line-height-base: 1.5;
+
+    --ifm-code-font-size: 0.95em;
+    --ifm-code-background: transparent;
+    --ifm-code-border-radius: 0;
+    --ifm-code-padding-horizontal: 0;
+    --ifm-code-padding-vertical: 0;
+    --ifm-pre-background: var(--bora-paper);
+    --ifm-pre-padding: 1rem;
+    --ifm-pre-border-radius: 0;
+    --ifm-global-radius: 0;
+    --ifm-global-shadow-lw: none;
+    --ifm-global-shadow-md: none;
+    --ifm-global-shadow-tl: none;
+
+    --ifm-navbar-background-color: var(--bora-paper);
+    --ifm-navbar-shadow: none;
+    --ifm-navbar-height: 3.75rem;
+    --ifm-navbar-padding-horizontal: 3rem;
+    --ifm-navbar-link-color: var(--bora-ink);
+    --ifm-navbar-link-hover-color: var(--bora-ink);
+
+    --ifm-footer-background-color: var(--bora-paper);
+    --ifm-footer-color: var(--bora-ink);
+    --ifm-footer-link-color: var(--bora-ink);
+    --ifm-footer-link-hover-color: var(--bora-ink);
+    --ifm-footer-title-color: var(--bora-ink);
+    --ifm-footer-padding-vertical: 2.25rem;
+    --ifm-footer-padding-horizontal: 3rem;
+
+    --ifm-menu-color: var(--bora-ink);
+    --ifm-menu-color-active: var(--bora-ink);
+    --ifm-menu-color-background-active: transparent;
+    --ifm-menu-color-background-hover: transparent;
+    --ifm-menu-link-padding-vertical: 0.22rem;
+    --ifm-menu-link-padding-horizontal: 0;
+
+    --ifm-link-color: var(--bora-ink);
+    --ifm-link-hover-color: var(--bora-ink);
+    --ifm-link-decoration: underline;
+    --ifm-link-hover-decoration: underline;
+
+    --ifm-table-border-color: var(--bora-ink);
+    --ifm-table-stripe-background: transparent;
+    --ifm-table-head-background: transparent;
+    --ifm-table-cell-padding: 0.42rem 1rem 0.42rem 0;
+
+    --ifm-blockquote-border-color: var(--bora-ink);
+    --ifm-dropdown-background-color: var(--bora-paper);
+    --ifm-dropdown-hover-background-color: transparent;
+    --ifm-breadcrumb-item-background-active: transparent;
+    --ifm-breadcrumb-color-active: var(--bora-ink);
+    --ifm-pagination-nav-border-radius: 0;
+    --ifm-pagination-nav-color-hover: var(--bora-ink);
+
+    --docusaurus-highlighted-code-line-bg: rgba(232, 118, 44, 0.16);
 }
 
-/* ── Dark mode ── */
+/* The dark theme is the same sheet as a negative: pale ink on a dark ground,
+   with the ruling held back so it does not glare. */
 [data-theme="dark"] {
-    --ifm-color-primary: #00d4ff;
-    --ifm-color-primary-dark: #00bfe6;
-    --ifm-color-primary-darker: #00b4d9;
-    --ifm-color-primary-darkest: #0094b3;
-    --ifm-color-primary-light: #1ad9ff;
-    --ifm-color-primary-lighter: #26dbff;
-    --ifm-color-primary-lightest: #52e3ff;
-    --ifm-background-color: #08101d;
-    --ifm-background-surface-color: #0c1829;
-    --ifm-navbar-background-color: #04080fee;
-    --ifm-footer-background-color: #04080f;
-    --ifm-font-color-base: #c8d8e8;
-    --ifm-heading-color: #e8f0f8;
-    --docusaurus-highlighted-code-line-bg: rgba(0, 212, 255, 0.12);
+    --bora-paper: #151515;
+    --bora-ink: #f1efe9;
+    --bora-grid: rgba(232, 118, 44, 0.32);
+    --bora-grid-minor: rgba(232, 118, 44, 0.13);
+    --bora-rule-orange: #f08a45;
+    --docusaurus-highlighted-code-line-bg: rgba(232, 118, 44, 0.22);
 }
 
-/* ── Dark navbar & footer ── */
-[data-theme="dark"] .navbar {
-    backdrop-filter: blur(16px) saturate(1.2);
-    border-bottom: 1px solid rgba(0, 212, 255, 0.08);
+/* ── Browser surfaces ─────────────────────────────────────────────────── */
+
+html {
+    text-rendering: optimizeLegibility;
+    scrollbar-color: var(--bora-ink) var(--bora-paper);
+    accent-color: var(--bora-ink);
+    caret-color: var(--bora-rule-orange);
 }
 
-[data-theme="dark"] .footer {
-    border-top: 1px solid rgba(0, 212, 255, 0.06);
+::selection {
+    background: var(--bora-grid);
+    color: #151515;
 }
 
-[data-theme="dark"] .footer .footer__title {
-    font-family: var(--font-mono);
-    text-transform: uppercase;
-    font-size: 0.7rem;
+:focus-visible {
+    outline: 3px solid var(--bora-rule-orange);
+    outline-offset: 3px;
+}
+
+/* What can be followed is ink, underlined in the sheet's orange. */
+a {
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.2em;
+}
+
+a:hover {
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 4px;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+
+.navbar {
+    border-bottom: var(--bora-rule-heavy);
+}
+
+.navbar__brand {
+    margin-right: 2.25rem;
+    text-decoration: none;
+}
+
+.navbar__brand:hover {
+    text-decoration: none;
+}
+
+.navbar__title {
+    font-family: var(--bora-font-title);
+    font-size: 1.55rem;
+    font-weight: 400;
     letter-spacing: 0.12em;
-    color: #5a7089;
+    text-transform: uppercase;
+    line-height: 1;
 }
 
-/* ── Markdown content ── */
-[data-theme="dark"] .markdown h1,
-[data-theme="dark"] .markdown h2,
-[data-theme="dark"] .markdown h3 {
-    font-family: var(--font-display);
-    font-weight: 600;
+.navbar__link {
+    font-size: 1.05rem;
+    font-weight: 400;
+    text-decoration: none;
+}
+
+.navbar__link:hover,
+.navbar__link--active {
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 3px;
+    text-underline-offset: 0.35em;
+}
+
+.navbar__toggle,
+.navbar-sidebar__close {
+    color: var(--bora-ink);
+}
+
+.navbar-sidebar {
+    border-right: var(--bora-rule);
+    box-shadow: none;
+}
+
+.navbar-sidebar__brand {
+    border-bottom: var(--bora-rule-heavy);
+    box-shadow: none;
+}
+
+.dropdown__menu {
+    border: var(--bora-rule);
+    padding: 0.35rem 0.85rem;
+    min-width: 8rem;
+}
+
+.dropdown__link {
+    padding: 0.25rem 0;
+    font-size: 0.95rem;
+    color: var(--bora-ink);
+    text-decoration: none;
+}
+
+.dropdown__link:hover,
+.dropdown__link--active,
+.dropdown__link--active:hover {
+    background: transparent;
+    color: var(--bora-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 3px;
+}
+
+/* ── Contents rail ────────────────────────────────────────────────────── */
+
+.theme-doc-sidebar-container {
+    border-right: var(--bora-rule) !important;
+}
+
+.theme-doc-sidebar-menu {
+    padding: 2rem 1.5rem 2rem 3rem !important;
+    font-size: 0.98rem;
+    line-height: 1.4;
+}
+
+.theme-doc-sidebar-menu > .menu__list-item {
+    margin-top: 1.1rem;
+}
+
+.theme-doc-sidebar-menu > .menu__list-item:first-child {
+    margin-top: 0;
+}
+
+.theme-doc-sidebar-menu > .menu__list-item > .menu__list-item-collapsible > .menu__link,
+.theme-doc-sidebar-menu > .menu__list-item > .menu__link {
+    font-weight: 700;
+}
+
+.theme-doc-sidebar-menu .menu__list .menu__list {
+    padding-left: 0;
+    margin-top: 0.1rem;
+}
+
+.menu__list-item-collapsible,
+.menu__list-item-collapsible:hover,
+.menu__link,
+.menu__link:hover {
+    background: transparent;
+}
+
+.menu__link {
+    text-decoration: none;
+}
+
+.menu__link:hover,
+.menu__link--active:not(.menu__link--sublist) {
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 3px;
+    text-underline-offset: 0.3em;
+}
+
+/* ── Reading column ───────────────────────────────────────────────────── */
+
+.theme-doc-markdown {
+    max-width: var(--bora-measure);
+}
+
+.markdown,
+.bora-book {
+    counter-reset: figure table;
+}
+
+.markdown {
+    font-family: var(--bora-font-ui);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    --ifm-paragraph-margin-bottom: 1.1rem;
+    --ifm-list-item-margin: 0.35rem;
+    --ifm-leading: 1.1rem;
+    text-wrap: pretty;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+    text-wrap: balance;
+}
+
+.markdown h1:first-child,
+.markdown > header h1 {
+    --ifm-h1-font-size: 2.5rem;
+    line-height: 1.15;
     letter-spacing: -0.01em;
+    margin-bottom: 1.5rem;
 }
 
-[data-theme="dark"] .markdown p,
-[data-theme="dark"] .markdown li {
-    font-family: var(--font-body);
-    font-size: 1.08rem;
-    line-height: 1.72;
-    color: #b0c4d8;
+.markdown > h2 {
+    --ifm-h2-font-size: 1.6rem;
+    line-height: 1.15;
+    margin-top: 3.25rem;
+    margin-bottom: 0.85rem;
 }
 
-[data-theme="dark"] .markdown code {
-    font-family: var(--font-mono);
-    background: #0c182966;
-    border: 1px solid rgba(0, 212, 255, 0.08);
-    padding: 0.1em 0.35em;
-    border-radius: 3px;
+.markdown > h3 {
+    --ifm-h3-font-size: 1.25rem;
+    line-height: 1.2;
+    margin-top: 2.4rem;
+    margin-bottom: 0.6rem;
 }
 
-[data-theme="dark"] pre.prism-code {
-    border: 1px solid rgba(0, 212, 255, 0.06);
-    border-radius: 6px;
+.markdown > h4 {
+    --ifm-h4-font-size: 1.0625rem;
+    font-weight: 700;
+    margin-top: 1.8rem;
+    margin-bottom: 0.4rem;
 }
 
-/* ── Sidebar ── */
-[data-theme="dark"] .menu__link {
-    font-family: var(--font-display);
+.markdown strong {
+    font-weight: 700;
+}
+
+.markdown hr {
+    height: 1px;
+    margin: 2.5rem 0;
+}
+
+.markdown blockquote {
+    border-left: 0;
+    margin: 1.4rem 0 1.4rem 2rem;
+    padding: 0;
+    font-style: italic;
+}
+
+.hash-link {
+    font-family: var(--bora-font-ui);
+    font-weight: 400;
+    text-decoration: none;
+}
+
+/* ── Listings ─────────────────────────────────────────────────────────── */
+
+code {
+    border: 0;
+    font-variant-ligatures: none;
+}
+
+.markdown code {
+    vertical-align: baseline;
+}
+
+.theme-code-block {
+    border: var(--bora-rule);
+    box-shadow: none;
+    margin-bottom: 1.4rem;
+    font-size: 0.875rem;
+    line-height: 1.55;
+}
+
+.theme-code-block pre,
+.theme-code-block code {
+    font-variant-ligatures: none;
+}
+
+/* Listing titles sit above a rule, in the lettering face. */
+.theme-code-block > div:first-child:not(:last-child) {
+    border-bottom: var(--bora-rule);
+    background: var(--bora-paper);
+    font-family: var(--bora-font-ui);
+    font-size: 0.85rem;
+    font-weight: 400;
+    padding: 0.4rem 1rem;
+    color: var(--bora-ink);
+}
+
+.theme-code-block button {
+    border: var(--bora-rule);
+    border-radius: 0;
+    background: var(--bora-paper);
+    color: var(--bora-ink);
+    opacity: 0;
+}
+
+.theme-code-block:hover button,
+.theme-code-block button:focus-visible {
+    opacity: 1;
+}
+
+.theme-code-block button:hover {
+    background: var(--bora-ink);
+    color: var(--bora-paper);
+}
+
+/* ── Tables: three rules ──────────────────────────────────────────────── */
+
+.markdown table,
+.bora-table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--bora-font-ui);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums lining-nums;
+    border-top: var(--bora-rule-heavy);
+    border-bottom: var(--bora-rule-heavy);
+    margin: 1.5rem 0 2rem;
+}
+
+.markdown table thead tr,
+.bora-table thead tr {
+    border-bottom: var(--bora-rule);
+}
+
+.markdown table tr,
+.bora-table tr {
+    border-top: 0;
+    background: transparent;
+}
+
+.markdown table th,
+.markdown table td,
+.bora-table th,
+.bora-table td {
+    border: 0;
+    vertical-align: top;
+    padding: var(--ifm-table-cell-padding);
+}
+
+.markdown table th,
+.bora-table th {
+    font-weight: 700;
+    text-align: left;
+    vertical-align: bottom;
+}
+
+.markdown table th[align="right"],
+.markdown table td[align="right"] {
+    padding-right: 0;
+    padding-left: 1rem;
+}
+
+.markdown table code {
+    font-size: 0.92em;
+}
+
+.markdown table .katex {
+    font-size: 1.1em;
+}
+
+@media (max-width: 720px) {
+    .markdown table {
+        display: block;
+        overflow-x: auto;
+    }
+}
+
+/* Numbered captions. A table's caption is set above it, a figure's below. */
+.bora-table-caption,
+.bora-figure figcaption {
+    font-family: var(--bora-font-ui);
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+.bora-table-caption {
+    counter-increment: table;
+    margin: 2rem 0 -0.9rem;
+}
+
+.bora-table-caption::before {
+    content: "Table " counter(table) ". ";
+    font-weight: 700;
+}
+
+.bora-table-caption p {
+    display: inline;
+}
+
+/* ── Figures ──────────────────────────────────────────────────────────── */
+
+.bora-figure {
+    counter-increment: figure;
+    margin: 2rem 0 2.25rem;
+}
+
+.bora-figure figcaption {
+    margin-top: 0.85rem;
+}
+
+.bora-figure figcaption::before {
+    content: "Figure " counter(figure) ". ";
+    font-weight: 700;
+}
+
+/* A figure's panel is a piece of the graph sheet with an ink border. */
+.bora-panel {
+    border: var(--bora-rule-heavy);
+    background: var(--bora-paper);
+}
+
+/* A diagram too wide for a phone scrolls sideways at a legible size. */
+.bora-scroll {
+    overflow-x: auto;
+}
+
+.bora-plot {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: var(--bora-font-ui);
+}
+
+.bora-plot .sheet-minor {
+    fill: none;
+    stroke: var(--bora-grid-minor);
+    stroke-width: 1;
+}
+
+.bora-plot .sheet-major {
+    fill: none;
+    stroke: var(--bora-grid);
+    stroke-width: 1.2;
+}
+
+.bora-plot text {
+    fill: var(--bora-ink);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums lining-nums;
+    /* Lettering is cut out of the ruling so it stays legible on the sheet. */
+    stroke: var(--bora-paper);
+    stroke-width: 6px;
+    stroke-linejoin: round;
+    paint-order: stroke;
+}
+
+.bora-plot text.plain {
+    stroke: none;
+}
+
+.bora-plot .frame,
+.bora-plot .line,
+.bora-plot .tick {
+    fill: none;
+    stroke: var(--bora-ink);
+    stroke-width: 1.2;
+}
+
+.bora-plot .frame {
+    stroke-width: 1.6;
+}
+
+.bora-plot .line {
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+}
+
+.bora-plot .line--heavy {
+    stroke-width: 2.6;
+    stroke-linecap: round;
+}
+
+.bora-plot .line--dashed {
+    stroke-dasharray: 7 5;
+}
+
+.bora-plot .symbol {
+    fill: var(--bora-paper);
+    stroke: var(--bora-ink);
+    stroke-width: 1.2;
+}
+
+.bora-plot .paper {
+    fill: var(--bora-paper);
+    stroke: none;
+}
+
+/* The mark at one condition: the heaviest ink on the sheet. */
+.bora-plot .mark {
+    fill: none;
+    stroke: var(--bora-ink);
+    stroke-width: 2.8;
+    stroke-linecap: round;
+}
+
+.bora-plot .mark--thin {
+    stroke-width: 1.2;
+}
+
+.bora-plot .mark--point {
+    fill: var(--bora-paper);
+}
+
+/* ── Notes ────────────────────────────────────────────────────────────── */
+
+.theme-admonition.alert {
+    background: transparent;
+    border: 0;
+    border-top: var(--bora-rule);
+    border-bottom: var(--bora-rule);
+    padding: 0.85rem 0 0.9rem;
+    margin: 1.75rem 0;
+    box-shadow: none;
+    color: var(--bora-ink);
+    --ifm-alert-foreground-color: var(--bora-ink);
+    --ifm-alert-background-color: transparent;
+}
+
+.theme-admonition.alert--warning,
+.theme-admonition.alert--danger {
+    border-top: var(--bora-rule-heavy);
+    border-bottom: var(--bora-rule-heavy);
+}
+
+.theme-admonition.alert > div:first-child {
+    font-family: var(--bora-font-ui);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    margin-bottom: 0.3rem;
+}
+
+.theme-admonition.alert > div:first-child > span:first-child {
+    display: none;
+}
+
+.theme-admonition.alert a {
+    color: var(--bora-ink);
+    text-decoration-color: var(--bora-rule-orange);
+}
+
+/* ── Math ─────────────────────────────────────────────────────────────── */
+
+.katex {
+    font-size: 1em;
+}
+
+.katex-display {
+    margin: 1.4rem 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.2rem 0;
+}
+
+/* ── Page furniture ───────────────────────────────────────────────────── */
+
+.breadcrumbs {
+    font-size: 0.9rem;
+}
+
+.breadcrumbs__link {
+    background: transparent !important;
+    padding: 0 0.25rem 0 0;
+    color: var(--bora-ink);
+}
+
+.breadcrumbs__item:not(:last-child)::after {
+    opacity: 1;
+}
+
+.table-of-contents {
     font-size: 0.88rem;
-    font-weight: 500;
+    line-height: 1.35;
+    border-left: var(--bora-rule);
 }
 
-[data-theme="dark"] .theme-doc-sidebar-container {
-    border-right: 1px solid rgba(0, 212, 255, 0.06) !important;
+.table-of-contents__link {
+    color: var(--bora-ink);
+    text-decoration: none;
 }
 
-/* ── Table of contents ── */
-[data-theme="dark"] .table-of-contents__link {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
+.table-of-contents__link:hover,
+.table-of-contents__link--active {
+    color: var(--bora-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 3px;
+}
+
+.theme-doc-footer {
+    margin-top: 3rem;
+}
+
+.theme-edit-this-page {
+    font-size: 0.9rem;
+}
+
+.pagination-nav {
+    border-top: var(--bora-rule);
+    padding-top: 1rem;
+    margin-top: 2.5rem;
+}
+
+.pagination-nav__link {
+    border: 0;
+    padding: 0;
+    text-decoration: none;
+}
+
+.pagination-nav__link:hover {
+    text-decoration: none;
+}
+
+.pagination-nav__sublabel {
+    font-size: 0.9rem;
+    color: var(--bora-ink);
+}
+
+.pagination-nav__label {
+    font-family: var(--bora-font-ui);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--bora-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.2em;
+}
+
+.pagination-nav__link:hover .pagination-nav__label {
+    text-decoration-thickness: 4px;
+}
+
+.theme-doc-version-banner {
+    max-width: var(--bora-measure);
+    border: 0;
+    border-top: var(--bora-rule-heavy);
+    border-bottom: var(--bora-rule-heavy);
+    background: transparent;
+    color: var(--bora-ink);
+    font-size: 0.95rem;
+    padding: 0.7rem 0;
+}
+
+/* The two sentences of the banner run on as one line. */
+.theme-doc-version-banner > div {
+    display: inline;
+    margin: 0 !important;
+}
+
+.theme-doc-version-banner > div + div::before {
+    content: " ";
+}
+
+.theme-doc-version-badge {
+    margin-bottom: 0.9rem;
+    border: var(--bora-rule);
+    background: transparent;
+    color: var(--bora-ink);
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+
+.clean-btn,
+.button {
+    border-radius: 0;
+}
+
+/* ── Colophon ─────────────────────────────────────────────────────────── */
+
+.footer {
+    border-top: var(--bora-rule-heavy);
+    font-size: 0.95rem;
+}
+
+.footer__title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.footer__link-item {
+    text-decoration: none;
+    line-height: 1.8;
+}
+
+.footer__link-item:hover {
+    text-decoration: underline;
+    text-decoration-color: var(--bora-rule-orange);
+    text-decoration-thickness: 3px;
+}
+
+.footer__link-item svg {
+    display: none;
+}
+
+.footer__copyright {
+    font-family: var(--bora-font-ui);
+    font-size: 0.9rem;
+    max-width: 44rem;
+    margin: 0.5rem auto 0;
+}
+
+@media (max-width: 996px) {
+    :root {
+        --ifm-navbar-padding-horizontal: 1rem;
+        --ifm-footer-padding-horizontal: 1rem;
+    }
+
+    .markdown {
+        font-size: 1rem;
+    }
+
+    .markdown h1:first-child,
+    .markdown > header h1 {
+        --ifm-h1-font-size: 2rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
 }

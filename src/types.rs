@@ -1,3 +1,34 @@
+/*
+    Bora: Rust Port of NeuralFoil
+
+    Copyright 2026 Christopher A. Lupp
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+    This work has been cleared for public release, distribution unlimited, case
+    number: AFRL-2026-2087.
+
+    The views expressed are those of the authors and do not reflect the
+    official guidance or position of the United States Government, the
+    Department of Defense or of the United States Air Force.
+
+    Statement from DoD: The Appearance of external hyperlinks does not
+    constitute endorsement by the United States Department of Defense (DoD) of
+    the linked websites, of the information, products, or services contained
+    therein. The DoD does not exercise any editorial, security, or other
+    control over the information you may find at these locations.
+*/
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -126,6 +157,25 @@ pub struct AeroOutput {
     pub lower: BoundaryLayerData,
 }
 
+/// The scalar analysis outputs: the fields of [`AeroOutput`] without the
+/// boundary layer distributions, as returned by
+/// [`NeuralFoil::analyze_scalars`](crate::NeuralFoil::analyze_scalars).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AeroScalars {
+    /// Network confidence in [0, 1].
+    pub analysis_confidence: f64,
+    /// Lift coefficient.
+    pub cl: f64,
+    /// Drag coefficient.
+    pub cd: f64,
+    /// Quarter-chord moment coefficient.
+    pub cm: f64,
+    /// Upper surface transition location (x/c).
+    pub top_xtr: f64,
+    /// Lower surface transition location (x/c).
+    pub bot_xtr: f64,
+}
+
 /// Gradients of the boundary layer quantities on one surface.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoundaryLayerGradients {
@@ -177,6 +227,39 @@ impl Default for AeroGradients {
 pub struct AeroResult {
     pub output: AeroOutput,
     pub gradient: AeroGradients,
+}
+
+/// Analysis outputs bundled with their directional derivative along one
+/// direction in user-input space (a Jacobian-vector product), as returned by
+/// [`NeuralFoil::analyze_with_tangent`](crate::NeuralFoil::analyze_with_tangent).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct AeroTangent {
+    /// The analysis outputs, identical to
+    /// [`NeuralFoil::analyze`](crate::NeuralFoil::analyze).
+    pub output: AeroOutput,
+    /// Directional derivative of every field of `output` along the requested
+    /// direction: for each output X, `sum_k gradient.X[k] * direction[k]`.
+    pub tangent: AeroOutput,
+}
+
+/// Gradients of the scalar analysis outputs with respect to the user inputs:
+/// the fields of [`AeroGradients`] without the boundary layer gradients.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AeroScalarGradients {
+    pub analysis_confidence: Gradient,
+    pub cl: Gradient,
+    pub cd: Gradient,
+    pub cm: Gradient,
+    pub top_xtr: Gradient,
+    pub bot_xtr: Gradient,
+}
+
+/// Scalar analysis outputs bundled with their gradients, as returned by
+/// [`NeuralFoil::analyze_scalars_with_gradients`](crate::NeuralFoil::analyze_scalars_with_gradients).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AeroScalarResult {
+    pub output: AeroScalars,
+    pub gradient: AeroScalarGradients,
 }
 
 /// Available NeuralFoil network sizes (speed/accuracy tradeoff).

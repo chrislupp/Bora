@@ -1,3 +1,34 @@
+/*
+    Bora: Rust Port of NeuralFoil
+
+    Copyright 2026 Christopher A. Lupp
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+    This work has been cleared for public release, distribution unlimited, case
+    number: AFRL-2026-2087.
+
+    The views expressed are those of the authors and do not reflect the
+    official guidance or position of the United States Government, the
+    Department of Defense or of the United States Air Force.
+
+    Statement from DoD: The Appearance of external hyperlinks does not
+    constitute endorsement by the United States Department of Defense (DoD) of
+    the linked websites, of the information, products, or services contained
+    therein. The DoD does not exercise any editorial, security, or other
+    control over the information you may find at these locations.
+*/
+
 //! Philote explicit discipline exposing NeuralFoil analyses over gRPC.
 //!
 //! Enabled with the `philote` Cargo feature.
@@ -14,8 +45,8 @@ use philote_mdo::{
 };
 
 use crate::{
-    AeroInput, Gradient, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE, NeuralFoil,
-    input_index,
+    AeroInput, AeroScalars, Gradient, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE,
+    NeuralFoil, input_index,
 };
 
 /// One named discipline input and its slice of the 23-entry gradient vector.
@@ -313,29 +344,46 @@ impl Discipline for BoraDiscipline {
 #[async_trait]
 impl ExplicitDiscipline for BoraDiscipline {
     async fn compute(&self, inputs: &ArrayMap) -> Result<ArrayMap> {
-        let aero = self.model()?.analyze(&read_aero_input(inputs)?);
+        let model = self.model()?;
+        let input = read_aero_input(inputs)?;
+
+        // Without boundary layer outputs, the scalar path skips decoding them.
+        let (scalars, boundary_layer) = if self.include_boundary_layer {
+            let aero = model.analyze(&input);
+            let scalars = AeroScalars {
+                analysis_confidence: aero.analysis_confidence,
+                cl: aero.cl,
+                cd: aero.cd,
+                cm: aero.cm,
+                top_xtr: aero.top_xtr,
+                bot_xtr: aero.bot_xtr,
+            };
+            (scalars, Some((aero.upper, aero.lower)))
+        } else {
+            (model.analyze_scalars(&input), None)
+        };
 
         let mut outputs = HashMap::new();
-        let scalars = [
-            ("CL", aero.cl),
-            ("CD", aero.cd),
-            ("CM", aero.cm),
-            ("Top_Xtr", aero.top_xtr),
-            ("Bot_Xtr", aero.bot_xtr),
-            ("analysis_confidence", aero.analysis_confidence),
+        let values = [
+            ("CL", scalars.cl),
+            ("CD", scalars.cd),
+            ("CM", scalars.cm),
+            ("Top_Xtr", scalars.top_xtr),
+            ("Bot_Xtr", scalars.bot_xtr),
+            ("analysis_confidence", scalars.analysis_confidence),
         ];
-        for (name, value) in scalars {
+        for (name, value) in values {
             outputs.insert(name.to_string(), array(&[1], vec![value]));
         }
 
-        if self.include_boundary_layer {
+        if let Some((upper, lower)) = boundary_layer {
             let distributions = [
-                ("upper_theta", &aero.upper.theta),
-                ("upper_H", &aero.upper.h),
-                ("upper_ue_over_vinf", &aero.upper.ue_over_vinf),
-                ("lower_theta", &aero.lower.theta),
-                ("lower_H", &aero.lower.h),
-                ("lower_ue_over_vinf", &aero.lower.ue_over_vinf),
+                ("upper_theta", &upper.theta),
+                ("upper_H", &upper.h),
+                ("upper_ue_over_vinf", &upper.ue_over_vinf),
+                ("lower_theta", &lower.theta),
+                ("lower_H", &lower.h),
+                ("lower_ue_over_vinf", &lower.ue_over_vinf),
             ];
             for (name, values) in distributions {
                 outputs.insert(name.to_string(), array(&[NUM_BL_POINTS], values.to_vec()));
@@ -345,12 +393,29 @@ impl ExplicitDiscipline for BoraDiscipline {
     }
 
     async fn compute_partials(&self, inputs: &ArrayMap) -> Result<PartialMap> {
-        let result = self
-            .model()?
-            .analyze_with_gradients(&read_aero_input(inputs)?);
-        let grad = &result.gradient;
-
+        let model = self.model()?;
+        let input = read_aero_input(inputs)?;
         let mut partials = HashMap::new();
+
+        // Without boundary layer outputs only the six scalar gradients are
+        // needed, which the reverse-mode path computes several times faster.
+        if !self.include_boundary_layer {
+            let grad = model.analyze_scalars_with_gradients(&input).gradient;
+            insert_scalar_partials(&mut partials, "CL", &grad.cl);
+            insert_scalar_partials(&mut partials, "CD", &grad.cd);
+            insert_scalar_partials(&mut partials, "CM", &grad.cm);
+            insert_scalar_partials(&mut partials, "Top_Xtr", &grad.top_xtr);
+            insert_scalar_partials(&mut partials, "Bot_Xtr", &grad.bot_xtr);
+            insert_scalar_partials(
+                &mut partials,
+                "analysis_confidence",
+                &grad.analysis_confidence,
+            );
+            return Ok(partials);
+        }
+
+        let result = model.analyze_with_gradients(&input);
+        let grad = &result.gradient;
         insert_scalar_partials(&mut partials, "CL", &grad.cl);
         insert_scalar_partials(&mut partials, "CD", &grad.cd);
         insert_scalar_partials(&mut partials, "CM", &grad.cm);
@@ -362,22 +427,20 @@ impl ExplicitDiscipline for BoraDiscipline {
             &grad.analysis_confidence,
         );
 
-        if self.include_boundary_layer {
-            insert_bl_partials(&mut partials, "upper_theta", &grad.upper.theta);
-            insert_bl_partials(&mut partials, "upper_H", &grad.upper.h);
-            insert_bl_partials(
-                &mut partials,
-                "upper_ue_over_vinf",
-                &grad.upper.ue_over_vinf,
-            );
-            insert_bl_partials(&mut partials, "lower_theta", &grad.lower.theta);
-            insert_bl_partials(&mut partials, "lower_H", &grad.lower.h);
-            insert_bl_partials(
-                &mut partials,
-                "lower_ue_over_vinf",
-                &grad.lower.ue_over_vinf,
-            );
-        }
+        insert_bl_partials(&mut partials, "upper_theta", &grad.upper.theta);
+        insert_bl_partials(&mut partials, "upper_H", &grad.upper.h);
+        insert_bl_partials(
+            &mut partials,
+            "upper_ue_over_vinf",
+            &grad.upper.ue_over_vinf,
+        );
+        insert_bl_partials(&mut partials, "lower_theta", &grad.lower.theta);
+        insert_bl_partials(&mut partials, "lower_H", &grad.lower.h);
+        insert_bl_partials(
+            &mut partials,
+            "lower_ue_over_vinf",
+            &grad.lower.ue_over_vinf,
+        );
         Ok(partials)
     }
 }

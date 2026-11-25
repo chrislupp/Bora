@@ -1,129 +1,138 @@
 ---
 sidebar_position: 1
-title: "API Overview"
+title: "API overview"
+description: "A map of Bora's public API: the analysis model, data types, constants, utilities and errors."
 ---
 
-# API Overview
+# API overview
 
-Bora is a Rust crate. The full public API is re-exported from the crate root,
-so a single `use bora::{...}` covers everything. This page is an overview; for
-the complete rustdoc reference (including the Philote discipline), run:
+Everything public is re-exported from the crate root, so one
+`use bora::{...}` reaches all of it. This page is a map. The complete
+reference, generated from the source, is the rustdoc:
 
 ```bash
 cargo doc --open --all-features
 ```
 
-## Core Types
+## The analysis model
 
-- **`NeuralFoil`** — The analysis model. Construct with
-  `NeuralFoil::new(size)`, `NeuralFoil::with_data_dir(size, dir)`, or
-  `NeuralFoil::from_parts(network, distribution)` (all return
-  `bora::Result<NeuralFoil>`), then call `analyze(&input)` or
-  `analyze_with_gradients(&input)`. `model_size()` reports the loaded size.
-  Immutable and safe to share across threads after construction.
-- **`Network`** / **`Layer`** — Low-level MLP container: loads HDF5 (`.h5`)
-  weight files with `Network::load(path)` or `Network::from_bytes(data)` and
-  evaluates the raw network (`evaluate`) with optional forward-mode Jacobian
-  propagation (`evaluate_with_jacobian`).
-- **`InputDistribution`** — Training-distribution statistics used for the
-  Mahalanobis-based analysis confidence; `InputDistribution::load(path)` or
-  `InputDistribution::from_bytes(data)`.
+### `NeuralFoil`
 
-The `from_bytes` loaders make it possible to embed weights in the binary so no
-data directory is needed at runtime. Copy the needed files from Bora's `data/`
-directory (`nn-<size>.h5` and `scaled_input_distribution.h5`) into your
-project; `include_bytes!` paths are relative to the source file:
+The model. Construct it once; every analysis call takes `&self`, cannot fail
+and is safe to call from several threads.
 
-```rust
-use bora::{InputDistribution, NeuralFoil, Network};
+| Item | Signature | Notes |
+|------|-----------|-------|
+| `new` | `(size: ModelSize) -> Result<NeuralFoil>` | Finds the NeuralFoil weights through `BORA_DATA_DIR` or the source tree |
+| `with_data_dir` | `(size, dir) -> Result<NeuralFoil>` | Loads from an explicit directory |
+| `from_parts` | `(Network, InputDistribution) -> Result<NeuralFoil>` | From pre-loaded or embedded weights |
+| `analyze` | `(&AeroInput) -> AeroOutput` | All outputs |
+| `analyze_with_gradients` | `(&AeroInput) -> AeroResult` | All outputs and their gradients, forward mode |
+| `analyze_scalars` | `(&AeroInput) -> AeroScalars` | The six scalar outputs |
+| `analyze_scalars_with_gradients` | `(&AeroInput) -> AeroScalarResult` | The six scalars and their gradients, reverse mode |
+| `analyze_with_tangent` | `(&AeroInput, &Gradient) -> AeroTangent` | All outputs and their derivative along one direction |
+| `analyze_batch` | `(&[AeroInput]) -> Vec<AeroOutput>` | Many inputs at once, all outputs |
+| `analyze_batch_into` | `(&[AeroInput], &mut [AeroOutput], &mut BatchWorkspace)` | The same, without allocating |
+| `analyze_scalars_batch` | `(&[AeroInput]) -> Vec<AeroScalars>` | Many inputs at once, the six scalars |
+| `analyze_scalars_batch_into` | `(&[AeroInput], &mut [AeroScalars], &mut BatchWorkspace)` | The same, without allocating |
+| `model_size` | `() -> ModelSize` | The size the model was constructed with |
 
-fn embedded_model() -> bora::Result<NeuralFoil> {
-    let network = Network::from_bytes(include_bytes!("../data/nn-xlarge.h5"))?;
-    let distribution =
-        InputDistribution::from_bytes(include_bytes!("../data/scaled_input_distribution.h5"))?;
-    NeuralFoil::from_parts(network, distribution)
-}
-```
+The `_into` forms panic if the output slice and the input slice differ in
+length. See [Inputs and outputs](../guide/analysis.md),
+[Gradients](../guide/gradients.md) and
+[Weights and deployment](../guide/deployment.md).
 
-## Data Types
+### `ModelSize`
 
-- **`KulfanParameters`** — CST shape description: `upper_weights`,
-  `lower_weights` (`[f64; 8]` each), `leading_edge_weight`, `te_thickness`.
-- **`AeroInput`** — Shape plus operating condition: `kulfan`, `alpha`, `re`,
-  `n_crit`, `xtr_upper`, `xtr_lower`. `Default` gives `re = 1e6`,
-  `n_crit = 9.0`, and free transition (`xtr_upper = xtr_lower = 1.0`).
-- **`AeroOutput`** — `cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`,
-  `analysis_confidence`, and boundary layer distributions `upper` / `lower`.
-- **`BoundaryLayerData`** — `theta`, `h`, `ue_over_vinf` at `NUM_BL_POINTS`
-  stations.
-- **`AeroGradients`** / **`BoundaryLayerGradients`** — Gradients of every
-  output with respect to the 23 inputs, mirroring the output layout.
-- **`AeroResult`** — Bundles `output: AeroOutput` and
-  `gradient: AeroGradients`.
-- **`Gradient`** — `[f64; NUM_INPUTS]`; indices named in `bora::input_index`
-  (`UPPER_WEIGHTS`, `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`,
-  `ALPHA`, `RE`, `N_CRIT`, `XTR_UPPER`, `XTR_LOWER`).
-- **`ModelSize`** — `XXSmall`, `XSmall`, `Small`, `Medium`, `Large`, `XLarge`
-  (default), `XXLarge`, `XXXLarge`. `ModelSize::ALL` lists all sizes;
-  `as_str()`, `Display`, and `FromStr` convert to and from names like
-  `"xlarge"`.
-- **`Point2`** — `[f64; 2]` airfoil coordinate.
+`XXSmall`, `XSmall`, `Small`, `Medium`, `Large`, `XLarge` (the default),
+`XXLarge`, `XXXLarge`. `ModelSize::ALL` lists them in order; `as_str()`,
+`Display` and `FromStr` convert to and from names such as `"xlarge"`. See
+[Choosing a network size](../guide/model-sizes.md).
+
+## Data types
+
+| Type | Contents |
+|------|----------|
+| `KulfanParameters` | `upper_weights`, `lower_weights` (`[f64; 8]` each), `leading_edge_weight`, `te_thickness` |
+| `AeroInput` | `kulfan`, `alpha`, `re`, `n_crit`, `xtr_upper`, `xtr_lower` |
+| `AeroOutput` | `cl`, `cd`, `cm`, `top_xtr`, `bot_xtr`, `analysis_confidence`, and `upper`, `lower` boundary layers |
+| `BoundaryLayerData` | `theta`, `h`, `ue_over_vinf`, each `[f64; NUM_BL_POINTS]` |
+| `AeroScalars` | The six scalar fields of `AeroOutput` |
+| `Gradient` | `[f64; NUM_INPUTS]`, indexed by the constants in `input_index` |
+| `AeroGradients` | A `Gradient` for every field of `AeroOutput`, same layout |
+| `BoundaryLayerGradients` | A `Gradient` for every boundary-layer value |
+| `AeroScalarGradients` | A `Gradient` for each of the six scalars |
+| `AeroResult` | `output: AeroOutput`, `gradient: AeroGradients` |
+| `AeroScalarResult` | `output: AeroScalars`, `gradient: AeroScalarGradients` |
+| `AeroTangent` | `output: AeroOutput`, `tangent: AeroOutput`, the directional derivative of every field |
+| `BatchWorkspace` | Reusable scratch space for the batched calls; grows on first use |
+| `Point2` | `[f64; 2]`, an airfoil coordinate |
+
+The `input_index` module names the entries of a `Gradient`: `UPPER_WEIGHTS`,
+`LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`, `ALPHA`, `RE`,
+`N_CRIT`, `XTR_UPPER`, `XTR_LOWER`. The first two are the start of
+eight-entry blocks.
 
 ## Constants
 
-- **`NUM_INPUTS`** (23) — Differentiable user-facing inputs.
-- **`NUM_CST_WEIGHTS_PER_SIDE`** (8) — CST weights per surface.
-- **`NUM_BL_POINTS`** (32) — Boundary layer stations per surface.
-- **`NUM_LATENT_INPUTS`** (25), **`NUM_LATENT_OUTPUTS`** (198) — Network
-  input and output dimensions.
+| Constant | Value | Meaning |
+|----------|------:|---------|
+| `NUM_INPUTS` | 23 | Differentiable user inputs |
+| `NUM_CST_WEIGHTS_PER_SIDE` | 8 | Kulfan weights per surface |
+| `NUM_BL_POINTS` | 32 | Boundary-layer stations per surface |
+| `NUM_LATENT_INPUTS` | 25 | Network input dimension |
+| `NUM_LATENT_OUTPUTS` | 198 | Network output dimension |
+| `BATCH_BLOCK_SIZE` | 8 | Network evaluations the batched kernel processes together |
 
 ## Utilities
 
-- **`generate_kulfan_coordinates(&params, n_points_per_side)`** — CST
-  parameters → Selig-format coordinates (`Result<Vec<Point2>>`).
-- **`fit_kulfan_parameters(&coordinates)`** — Least-squares CST fit from
-  Selig-format coordinates (`Result<KulfanParameters>`).
-- **`bl_x_points()`** — Chordwise stations of the boundary layer outputs.
-- **`version()`** — Crate version string.
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `fit_kulfan_parameters` | `(&[Point2]) -> Result<KulfanParameters>` | Least-squares fit to Selig-format coordinates |
+| `generate_kulfan_coordinates` | `(&KulfanParameters, n_points_per_side) -> Result<Vec<Point2>>` | Selig-format coordinates from parameters |
+| `bl_x_points` | `() -> [f64; NUM_BL_POINTS]` | Chordwise stations of the boundary-layer outputs |
+| `version` | `() -> &'static str` | The crate version |
+
+See [Airfoil geometry](../guide/geometry.mdx).
 
 ## Errors
 
-- **`Error`** — Enum of load and argument errors: `Open`, `Format`,
-  `DataDirNotFound`, `DimensionMismatch`, `InvalidArgument`, `SingularFit`.
-  Implements `std::error::Error`.
-- **`Result<T>`** — Alias for `std::result::Result<T, bora::Error>`.
+`bora::Result<T>` is `Result<T, bora::Error>`. Constructors, loaders and the
+Kulfan utilities return it; analysis calls do not. The variants of `Error`
+are `Open`, `Format`, `DataDirNotFound`, `DimensionMismatch`,
+`InvalidArgument` and `SingularFit`, described in
+[Weights and deployment](../guide/deployment.md#errors).
 
-Constructors, loaders, and the Kulfan utilities return `Result`; analysis calls
-are infallible.
+## Lower-level access
 
-## Philote Discipline
+Most programs need nothing below `NeuralFoil`. The pieces it is built from are
+public for programs that want to embed weights or evaluate the raw network.
 
-With the `philote` feature enabled, `bora::philote::BoraDiscipline` wraps
-`NeuralFoil` as an explicit discipline for the Philote MDO standard (built on
-the [`philote-mdo`](https://github.com/MDO-Standards/Philote-Rust) crate), so
-any Philote client can evaluate airfoil aerodynamics and analytic partials over
-gRPC. Variable names follow upstream NeuralFoil's capitalization (`CL`, `Re`,
-...). Partials are row-major `[output_size x input_size]` blocks with singleton
-dimensions dropped.
+### `Network`
 
-- **Inputs:** `upper_weights` \[8\], `lower_weights` \[8\],
-  `leading_edge_weight`, `TE_thickness`, `alpha`, `Re`, `n_crit`,
-  `xtr_upper`, `xtr_lower`.
-- **Outputs:** `CL`, `CD`, `CM`, `Top_Xtr`, `Bot_Xtr`,
-  `analysis_confidence`, and optionally the boundary layer distributions
-  `upper_theta`, `upper_H`, `upper_ue_over_vinf`, `lower_theta`, `lower_H`,
-  `lower_ue_over_vinf`.
-- **Options:**
+A fully connected network with Swish activations.
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `model_size` | str | Network size name, e.g. `"xlarge"` (default) |
-| `data_directory` | str | Directory with the `.h5` weight files; empty uses the standard resolution order |
-| `include_boundary_layer` | bool | Expose boundary layer outputs and their partials (default false) |
+| Item | Purpose |
+|------|---------|
+| `load(path)`, `from_bytes(data)` | Read a weight file from disk or memory |
+| `evaluate(x, y)` | Outputs for one input |
+| `evaluate_pair([x0, x1], [y0, y1])` | Two inputs in one pass over the weights; bitwise identical to two `evaluate` calls |
+| `evaluate_with_jacobian(x, jx, n_seed, y, jy)` | Outputs with a forward-mode Jacobian for `n_seed` seed directions |
+| `evaluate_with_tangent(x, dx, y, dy)` | Outputs with the tangent along one direction |
+| `evaluate_batch(x, y, n_points, workspace)` | Many inputs at once; `x` is `input_size()` by `n_points` and `y` is `output_size()` by `n_points`, row-major with one column per point |
+| `evaluate_first(x, n, y)` | Only the first `n` outputs |
+| `evaluate_first_with_gradients(x, n, y, grad)` | The first `n` outputs and their reverse-mode gradients, row-major `n` by `input_size()` |
+| `input_size()`, `output_size()`, `layers()` | Dimensions and the `Layer` list |
 
-The `bora_server` binary serves the discipline:
+### `InputDistribution`
 
-```bash
-# Default address is localhost:50051
-cargo run --release --features philote --bin bora_server [address]
-```
+The mean and inverse covariance of NeuralFoil's training inputs, used for the
+confidence correction. `load(path)` and `from_bytes(data)` read it;
+`squared_mahalanobis(x)` and `squared_mahalanobis_gradient(x, grad)` evaluate
+the distance and its gradient; `size()` is its dimension.
+
+## Philote discipline
+
+With the `philote` feature, `bora::philote::BoraDiscipline` wraps the model as
+an explicit discipline for the Philote MDO standard, and the `bora_server`
+binary serves it over gRPC. See [Philote discipline](../guide/philote.md).

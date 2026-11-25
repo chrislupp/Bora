@@ -1,14 +1,13 @@
-import { themes as prismThemes } from "prism-react-renderer";
 import type { Config } from "@docusaurus/types";
 import type * as Preset from "@docusaurus/preset-classic";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import { boraLight, boraDark } from "./src/prism";
 
 const config: Config = {
     title: "Bora",
-    tagline:
-        "NeuralFoil airfoil aerodynamics in Rust, with exact analytic gradients for design optimization.",
-    favicon: "img/favicon.ico",
+    tagline: "Airfoil aerodynamics from NeuralFoil, in Rust, with exact gradients",
+    favicon: "img/favicon.svg",
 
     future: {
         v4: true,
@@ -21,20 +20,28 @@ const config: Config = {
     projectName: "Bora",
 
     onBrokenLinks: "throw",
+    onBrokenAnchors: "throw",
+
+    markdown: {
+        hooks: {
+            onBrokenMarkdownLinks: "throw",
+        },
+    },
 
     i18n: {
         defaultLocale: "en",
         locales: ["en"],
     },
 
-    stylesheets: [
-        {
-            href: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
-            type: "text/css",
-            integrity:
-                "sha384-nB0miv6/jRmo5RLHO8BIp/8hwC1slNFDuv3VUgI4A7O/lEKmpRgiuNOQI2bRpFB",
-            crossorigin: "anonymous",
-        },
+    plugins: [
+        // `import source from "path?raw"` yields a file's text, so pages can list
+        // the repository's example scripts in full without copying them.
+        () => ({
+            name: "raw-source",
+            configureWebpack: () => ({
+                module: { rules: [{ resourceQuery: /raw/, type: "asset/source" }] },
+            }),
+        }),
     ],
 
     presets: [
@@ -47,10 +54,16 @@ const config: Config = {
                     rehypePlugins: [rehypeKatex],
                     editUrl:
                         "https://github.com/chrislupp/Bora/tree/develop/docs/",
+                    // The banner already says these docs are unreleased.
+                    versions: {
+                        current: { badge: false },
+                    },
                 },
                 blog: false,
                 theme: {
-                    customCss: "./src/css/custom.css",
+                    // KaTeX's stylesheet and fonts are bundled from the installed
+                    // package, so they always match the version that renders the math.
+                    customCss: ["./node_modules/katex/dist/katex.min.css", "./src/css/custom.css"],
                 },
             } satisfies Preset.Options,
         ],
@@ -58,7 +71,7 @@ const config: Config = {
 
     themeConfig: {
         colorMode: {
-            defaultMode: "dark",
+            defaultMode: "light",
             respectPrefersColorScheme: true,
         },
         navbar: {
@@ -88,40 +101,11 @@ const config: Config = {
             ],
         },
         footer: {
-            style: "dark",
-            links: [
-                {
-                    title: "Documentation",
-                    items: [
-                        {
-                            label: "Getting Started",
-                            to: "/docs/getting-started/installation",
-                        },
-                        {
-                            label: "API Reference",
-                            to: "/docs/api",
-                        },
-                    ],
-                },
-                {
-                    title: "More",
-                    items: [
-                        {
-                            label: "GitHub",
-                            href: "https://github.com/chrislupp/Bora",
-                        },
-                        {
-                            label: "Changelog",
-                            href: "https://github.com/chrislupp/Bora/blob/main/CHANGELOG.md",
-                        },
-                    ],
-                },
-            ],
-            copyright: `Copyright \u00A9 ${new Date().getFullYear()} Christopher Lupp. Built with Docusaurus.`,
+            copyright: `Copyright ${new Date().getFullYear()} Christopher A. Lupp. Third-party attributions, including NeuralFoil and its network weights, are listed in the <a href="https://github.com/chrislupp/Bora/blob/main/NOTICE">NOTICE</a> file.`,
         },
         prism: {
-            theme: prismThemes.github,
-            darkTheme: prismThemes.dracula,
+            theme: boraLight,
+            darkTheme: boraDark,
             additionalLanguages: ["rust", "toml", "bash"],
         },
     } satisfies Preset.ThemeConfig,

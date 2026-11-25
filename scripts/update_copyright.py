@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 COPYRIGHT_PATTERN = re.compile(
-    r"(Copyright\s+)(\d{4})(-\d{4})?(,\s*\S.*)"
+    r"(Copyright\s+)(\d{4})(-\d{4})?(,?\s+\S.*)"
 )
 VERSION_PATTERN = re.compile(
     r"(Version\s+)\d+\.\d+\.\d+"

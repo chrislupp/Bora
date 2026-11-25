@@ -22,9 +22,17 @@ cargo test --all-features
 cargo test --test neuralfoil
 cargo test --all-features -- matches_python
 
+# Run the kernel benchmarks (all model sizes, or only the named ones)
+cargo bench
+cargo bench -- medium xlarge
+
 # Run examples
 cargo run --release --example example
-cargo run --release --example optimize_airfoil
+cargo run --release --example polar
+
+# OpenMDAO + IPOPT over Philote (needs openmdao, philote-mdo, pyoptsparse with IPOPT;
+# starts bora_server itself)
+python3 examples/openmdao/optimize_daedalus.py
 ```
 
 ### Linting and Formatting
@@ -45,8 +53,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 - `philote` - Build the Philote discipline (`bora::philote`) and the `bora_server` gRPC binary (default: off; uses the `philote-mdo` crate, which vendors `protoc`, so no system gRPC/protobuf install is needed)
 
 ### Performance
-- `RUSTFLAGS="-C target-cpu=native"` enables hardware FMA on x86-64; aarch64 always has it
-- The network kernels in `src/network.rs` (`dot`, `mul_add`, the Jacobian row accumulation) are hand-tuned; benchmark against the previous version before simplifying them
+- FMA: aarch64 always has it. On x86-64, `dispatch` in `src/network.rs` runs each network pass through an `#[target_feature(enable = "avx2,fma")]` copy when `is_x86_feature_detected!` reports AVX2 and FMA (decided once per process), else the SSE2 baseline; `RUSTFLAGS="-C target-cpu=native"` compiles AVX2/FMA in statically and removes the check. Kernels take the multiply-add strategy as a type parameter (`M: MulAdd`, `Fused`/`Unfused`), because `cfg(target_feature)` inside a `#[target_feature]` function still reflects the crate-wide flags. Everything a pass calls must stay `#[inline(always)]`: a non-inlined callee is compiled without AVX2/FMA, and `f64::mul_add` there becomes a slow libm call
+- Testing the x86-64 baseline path on an AVX2 machine: set `BORA_DISABLE_AVX2_FMA=1` (hidden switch, read once per process; not public API), e.g. `BORA_DISABLE_AVX2_FMA=1 cargo test --all-features`
+- The network kernels in `src/network.rs` (the `MulAdd` strategies, the 16-accumulator `dot`/`dot2`, the register-accumulated `jacobian_row` with seed counts padded to a multiple of 4, and the `Lanes` kernel-per-type dispatch) are hand-tuned; small rewrites (e.g. selecting a kernel with `if B == 2`, indexing generic `[[f64; K]; B]` accumulators) measured 15-100% slower
+- The reverse-mode kernels `adjoint_rows` (`ADJOINT_ROW_BLOCK` = 4 weight rows per update, up to `MAX_ADJOINT_LANES` = 16 lanes shared across inputs) and `dense_layer_slopes` (values plus swish slopes in one forward traversal) are hand-tuned as well; see the measurements in their doc comments
+- The tangent pass (`dense_layer_tangent`: value and tangent lanes through `dot2`) and the batched kernel (`dense_block`: `BATCH_BLOCK_SIZE` points x 4 hand-unrolled output rows, `exp_vectorizable` for swish) are hand-tuned too: sharing one weight traversal between the original and flipped tangent passes, a 4-vector dot, and a generic `[[f64; B]; R]` accumulator block all measured slower (see their doc comments)
+- `cargo bench` (`benches/kernels.rs`, std only) times the analysis calls (including the tangent and batched ones) and the network passes for every model size; `cargo bench -- medium xlarge` restricts the sizes. Compare against the previous version before and after any kernel change
 
 ## Documentation Site
 
@@ -62,9 +74,32 @@ npm run serve    # Serve production build locally
 ```
 
 ### Structure
-- `docs/docs/` -- Markdown content (getting-started, guide, api, examples)
+- `docs/docs/` -- Markdown content (getting-started, guide, background, examples, api, references)
 - `docs/src/` -- Custom React components and CSS
-- `docs/static/` -- Static assets (images, favicon)
+  - `src/css/custom.css` -- the theme; its header comment states the design rules
+  - `src/components/` -- figures drawn in code (`plot.tsx` holds the shared graph-sheet pieces)
+  - `src/data/polar.json` -- figure data; regenerate with
+    `cargo run --release --example polar -- --json > docs/src/data/polar.json`
+  - `src/data/optimization.json` -- figure data of the OpenMDAO example; regenerate with
+    `python3 examples/openmdao/optimize_daedalus.py --json docs/src/data/optimization.json`
+- `docs/static/` -- Static assets (favicon, self-hosted fonts with their OFL licenses)
+
+### Content and design rules
+- Facts about NeuralFoil (how it works, training, accuracy) are paraphrased and cited to
+  `docs/docs/references.md` at the point of use; never copy upstream text
+- Program output shown in the docs is real: rerun the example and paste the result
+- Theme: paper, black ink, and the orange ruling of a graph sheet. Orange rules the figures and
+  underlines links and selections; it never sets text. Code listings are syntax highlighted in
+  the muted inks of `src/prism.ts` (every code fence names its language; `text` only for program
+  output; BibTeX is a custom grammar in `src/theme/prism-include-languages.ts`). Charts are scaled so the sheet's rulings
+  are the chart's grid; series differ by symbol and states by line type, not colour. The grid
+  stays inside figures, never behind running text
+- Charts: left and bottom axes only (no top or right spines); axis titles go on the axes (the
+  y title rotated beside its numerals, via `Chart`'s `xTitle`/`yTitle`), never as text inside
+  the plot area; a figure's charts are stacked at full column width, not shrunk side by side.
+  They are called figures ("Figure N." captions), never plates
+- New doc pages exist only under `/docs/next/` until a release; links from the home page go
+  through `src/lib/useDocPath.ts`. The footer holds only the copyright line, no link columns
 - `docs/docusaurus.config.ts` -- Site configuration
 - `docs/sidebars.ts` -- Navigation structure
 
@@ -82,6 +117,7 @@ src/                   # Library crate (lib.rs, types, kulfan, network, neuralfo
 src/bin/               # bora_server (requires the `philote` feature)
 tests/                 # Integration tests; tests/common/ holds shared loaders
 tests/data/            # Committed HDF5 reference data from Python NeuralFoil
+benches/               # std-only timing harness (`cargo bench`)
 examples/              # Example programs
 data/                  # Network weights (HDF5)
 scripts/               # Weight conversion, reference data generation, release helpers
@@ -95,7 +131,7 @@ docs/                  # Docusaurus documentation site
 Runs on every push and PR to `main`/`develop`:
 - Formatting check (`cargo fmt`)
 - Clippy (`-D warnings`, all targets and features)
-- Build and test matrix (Ubuntu and macOS, stable and MSRV 1.89)
+- Build and test matrix (Ubuntu, stable and MSRV 1.89)
 
 ### Docs Workflow (`.github/workflows/docs.yml`)
 Deploys documentation to GitHub Pages when changes are pushed to `develop` in:
@@ -120,6 +156,13 @@ Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
 4. Updates `CHANGELOG.md` (converts `[Unreleased]` to versioned section)
 5. Creates a signed commit and annotated tag
 6. Pushes to `main` and creates a GitHub Release
+
+### Publish Workflow (`.github/workflows/publish.yml`)
+Publishes to crates.io when a stable GitHub Release is published (pre-releases are skipped,
+since their Cargo.toml version has no qualifier); rerun manually with `workflow_dispatch` and a
+tag. Uses crates.io trusted publishing (OIDC, `crates-io` environment); a `CARGO_REGISTRY_TOKEN` secret, if present, is used instead (bootstrap for the first publish only; 0.1.0 is not on crates.io). The
+package is `bora-foil` on crates.io (`bora` is taken) with `[lib] name = "bora"`; keep the
+`.crate` under the 10 MB upload cap (`cargo package --list`, `exclude` in `Cargo.toml`).
 
 **Requirements**: A PAT with `repo` scope stored as `RELEASE_TOKEN` in Actions secrets.
 

@@ -1,33 +1,34 @@
 import type { SidebarsConfig } from "@docusaurus/plugin-content-docs";
 
+// Every chapter stays open, so the rail always shows the whole contents.
+const chapter = (label: string, items: string[]) => ({
+    type: "category" as const,
+    label,
+    collapsible: false,
+    items,
+});
+
 const sidebars: SidebarsConfig = {
     docsSidebar: [
-        {
-            type: "category",
-            label: "Getting Started",
-            items: [
-                "getting-started/installation",
-                "getting-started/quickstart",
-            ],
-        },
-        {
-            type: "category",
-            label: "Guide",
-            items: [
-                "guide/concepts",
-            ],
-        },
-        {
-            type: "category",
-            label: "Examples",
-            items: [
-                "examples/basic-usage",
-            ],
-        },
+        chapter("Getting started", [
+            "intro",
+            "getting-started/installation",
+            "getting-started/quickstart",
+        ]),
+        chapter("Guide", [
+            "guide/geometry",
+            "guide/analysis",
+            "guide/gradients",
+            "guide/confidence",
+            "guide/model-sizes",
+            "guide/deployment",
+            "guide/philote",
+        ]),
+        chapter("Background", ["background/how-it-works", "background/accuracy-and-limits"]),
+        chapter("Examples", ["examples/analysis", "examples/polar", "examples/openmdao"]),
+        "references",
     ],
-    apiSidebar: [
-        "api/index",
-    ],
+    apiSidebar: ["api/index"],
 };
 
 export default sidebars;
