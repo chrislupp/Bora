@@ -65,8 +65,9 @@ fn print_table(model: &NeuralFoil, input: &AeroInput) {
         "alpha", "CL", "CD", "CM", "L/D", "xtr_top", "xtr_bot", "dCL/dalpha", "confidence"
     );
     for alpha in alphas(2.0) {
-        let AeroScalarResult { output, gradient } =
-            model.analyze_scalars_with_gradients(&AeroInput { alpha, ..*input });
+        let AeroScalarResult {
+            output, gradient, ..
+        } = model.analyze_scalars_with_gradients(&AeroInput { alpha, ..*input });
         println!(
             "{alpha:>6.1}  {:>8.4}  {:>8.5}  {:>8.4}  {:>7.1}  {:>7.3}  {:>7.3}  {:>10.5}  {:>10.4}",
             output.cl,
@@ -85,8 +86,9 @@ fn print_table(model: &NeuralFoil, input: &AeroInput) {
 fn sweep_json(model: &NeuralFoil, input: &AeroInput) -> String {
     let rows: Vec<String> = alphas(0.25)
         .map(|alpha| {
-            let AeroScalarResult { output, gradient } =
-                model.analyze_scalars_with_gradients(&AeroInput { alpha, ..*input });
+            let AeroScalarResult {
+                output, gradient, ..
+            } = model.analyze_scalars_with_gradients(&AeroInput { alpha, ..*input });
             format!(
                 "        {{\"alpha\": {alpha}, \"cl\": {:.5}, \"cd\": {:.6}, \"cm\": {:.5}, \
                  \"top_xtr\": {:.4}, \"bot_xtr\": {:.4}, \"confidence\": {:.4}, \

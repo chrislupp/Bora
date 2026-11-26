@@ -221,6 +221,7 @@ impl From<AeroInput> for CorrectedInput {
 /// [`CorrectedGradients::deflection`]), every field holds the derivative of
 /// the quantity it names.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub struct CorrectedOutput {
     /// Network confidence in [0, 1] (not affected by the corrections).
     pub analysis_confidence: f64,
@@ -252,6 +253,7 @@ pub struct CorrectedOutput {
 
 /// Gradients of the corrected outputs.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CorrectedGradients {
     pub analysis_confidence: CorrectedGradient,
     pub cl: CorrectedGradient,
@@ -298,6 +300,7 @@ impl Default for CorrectedGradients {
 /// Corrected outputs bundled with their gradients, as returned by
 /// [`NeuralFoil::analyze_corrected_with_gradients`](crate::NeuralFoil::analyze_corrected_with_gradients).
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct CorrectedResult {
     pub output: CorrectedOutput,
     pub gradient: CorrectedGradients,
@@ -306,6 +309,7 @@ pub struct CorrectedResult {
 /// Boundary layer quantities sampled at [`NUM_BL_POINTS`] stations along one
 /// surface. Station x/c locations are given by [`bl_x_points`].
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct BoundaryLayerData {
     /// Momentum thickness (chord-normalized).
     pub theta: [f64; NUM_BL_POINTS],
@@ -327,6 +331,7 @@ impl Default for BoundaryLayerData {
 
 /// Aerodynamic analysis outputs.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroOutput {
     /// Network confidence in [0, 1].
     pub analysis_confidence: f64,
@@ -348,6 +353,7 @@ pub struct AeroOutput {
 /// boundary layer distributions, as returned by
 /// [`NeuralFoil::analyze_scalars`](crate::NeuralFoil::analyze_scalars).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroScalars {
     /// Network confidence in [0, 1].
     pub analysis_confidence: f64,
@@ -365,6 +371,7 @@ pub struct AeroScalars {
 
 /// Gradients of the boundary layer quantities on one surface.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct BoundaryLayerGradients {
     pub theta: [Gradient; NUM_BL_POINTS],
     pub h: [Gradient; NUM_BL_POINTS],
@@ -383,6 +390,7 @@ impl Default for BoundaryLayerGradients {
 
 /// Gradients of all analysis outputs with respect to the user inputs.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct AeroGradients {
     pub analysis_confidence: Gradient,
     pub cl: Gradient,
@@ -411,6 +419,7 @@ impl Default for AeroGradients {
 
 /// Analysis outputs bundled with their gradients.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroResult {
     pub output: AeroOutput,
     pub gradient: AeroGradients,
@@ -420,6 +429,7 @@ pub struct AeroResult {
 /// direction in user-input space (a Jacobian-vector product), as returned by
 /// [`NeuralFoil::analyze_with_tangent`](crate::NeuralFoil::analyze_with_tangent).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroTangent {
     /// The analysis outputs, identical to
     /// [`NeuralFoil::analyze`](crate::NeuralFoil::analyze).
@@ -432,6 +442,7 @@ pub struct AeroTangent {
 /// Gradients of the scalar analysis outputs with respect to the user inputs:
 /// the fields of [`AeroGradients`] without the boundary layer gradients.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroScalarGradients {
     pub analysis_confidence: Gradient,
     pub cl: Gradient,
@@ -444,6 +455,7 @@ pub struct AeroScalarGradients {
 /// Scalar analysis outputs bundled with their gradients, as returned by
 /// [`NeuralFoil::analyze_scalars_with_gradients`](crate::NeuralFoil::analyze_scalars_with_gradients).
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct AeroScalarResult {
     pub output: AeroScalars,
     pub gradient: AeroScalarGradients,
@@ -451,6 +463,7 @@ pub struct AeroScalarResult {
 
 /// Available NeuralFoil network sizes (speed/accuracy tradeoff).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
 pub enum ModelSize {
     XXSmall,
     XSmall,

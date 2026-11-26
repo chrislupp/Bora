@@ -35,7 +35,8 @@ use std::collections::HashMap;
 
 use bora::philote::BoraDiscipline;
 use bora::{
-    AeroInput, CorrectedInput, Gradient, ModelSize, NUM_BL_POINTS, NeuralFoil, input_index,
+    AeroInput, ControlSurface, CorrectedInput, Gradient, ModelSize, NUM_BL_POINTS, NeuralFoil,
+    input_index,
 };
 use ndarray::{ArrayD, IxDyn};
 use philote_mdo::{ArrayMap, Discipline, ExplicitDiscipline};
@@ -278,4 +279,189 @@ fn rejects_unknown_model_size() {
     let mut discipline = BoraDiscipline::new();
     let options = HashMap::from([("model_size".to_string(), serde_json::json!("huge"))]);
     assert!(discipline.set_options(&options).is_err());
+}
+
+/// A configured discipline with the corrections on and the given hinge points.
+fn corrected_discipline(hinge_points: serde_json::Value, boundary_layer: bool) -> BoraDiscipline {
+    let mut discipline = BoraDiscipline::new();
+    discipline.initialize().unwrap();
+    let options = HashMap::from([
+        ("model_size".to_string(), serde_json::json!("medium")),
+        ("include_corrections".to_string(), serde_json::json!(true)),
+        (
+            "include_boundary_layer".to_string(),
+            serde_json::json!(boundary_layer),
+        ),
+        ("control_surface_hinge_points".to_string(), hinge_points),
+    ]);
+    discipline.set_options(&options).unwrap();
+    discipline.setup().unwrap();
+    discipline.setup_partials().unwrap();
+    discipline
+}
+
+fn corrected_inputs(input: &CorrectedInput) -> ArrayMap {
+    let mut inputs = make_inputs(&input.aero);
+    inputs.insert(
+        "mach".to_string(),
+        ArrayD::from_shape_vec(IxDyn(&[1]), vec![input.mach]).unwrap(),
+    );
+    let deflections: Vec<f64> = input
+        .control_surfaces
+        .iter()
+        .map(|s| s.deflection)
+        .collect();
+    let n = deflections.len();
+    inputs.insert(
+        "control_surface_deflections".to_string(),
+        ArrayD::from_shape_vec(IxDyn(&[n]), deflections).unwrap(),
+    );
+    inputs
+}
+
+#[tokio::test]
+async fn control_surfaces_add_deflection_input_and_partials() {
+    let discipline = corrected_discipline(serde_json::json!("0.7, 0.85"), true);
+
+    // Eleven inputs (mach, deflections) and 10 + 6 outputs; the boundary
+    // layer has partials with respect to the deflections but not mach.
+    assert_eq!(
+        discipline.get_variable_definitions().unwrap().len(),
+        11 + 16
+    );
+    assert_eq!(
+        discipline.get_partials_definitions().unwrap().len(),
+        10 * 11 + 6 * 10
+    );
+
+    let input = CorrectedInput {
+        aero: test_case(),
+        mach: 0.3,
+        control_surfaces: vec![
+            ControlSurface {
+                deflection: 5.0,
+                hinge_point: 0.7,
+            },
+            ControlSurface {
+                deflection: -3.0,
+                hinge_point: 0.85,
+            },
+        ],
+        include_360_deg_effects: true,
+    };
+    let inputs = corrected_inputs(&input);
+    let outputs = discipline.compute(&inputs).await.unwrap();
+    let partials = discipline.compute_partials(&inputs).await.unwrap();
+
+    let model = NeuralFoil::new(ModelSize::Medium).unwrap();
+    let expected = model.analyze_corrected_with_gradients(&input);
+    assert_eq!(outputs["CL"][[0]], expected.output.cl);
+    assert_eq!(outputs["CM"][[0]], expected.output.cm);
+    let theta: Vec<f64> = outputs["upper_theta"].iter().copied().collect();
+    assert_eq!(theta, expected.output.upper.theta);
+    // The deflections take effect.
+    let undeflected = model.analyze_corrected(&CorrectedInput {
+        control_surfaces: Vec::new(),
+        ..input.clone()
+    });
+    assert!((expected.output.cl - undeflected.cl).abs() > 0.01);
+
+    let key = |output: &str| {
+        (
+            output.to_string(),
+            "control_surface_deflections".to_string(),
+        )
+    };
+    let deflection = &expected.gradient.deflection;
+    let cl = &partials[&key("CL")];
+    assert_eq!(cl.shape(), [2]);
+    assert_eq!(cl[[0]], deflection[0].cl);
+    assert_eq!(cl[[1]], deflection[1].cl);
+    assert_eq!(partials[&key("mach_dd")][[1]], deflection[1].mach_dd);
+    let lower_h = &partials[&key("lower_H")];
+    assert_eq!(lower_h.shape(), [NUM_BL_POINTS, 2]);
+    assert_eq!(lower_h[[9, 1]], deflection[1].lower.h[9]);
+    assert!(!partials.contains_key(&("upper_H".to_string(), "mach".to_string())));
+}
+
+#[tokio::test]
+async fn one_control_surface_drops_singleton_dimensions() {
+    // A bare Philote client may send a number or a list instead of a string.
+    for hinge_points in [serde_json::json!(0.75), serde_json::json!([0.75])] {
+        let discipline = corrected_discipline(hinge_points, true);
+        let input = CorrectedInput {
+            aero: test_case(),
+            control_surfaces: vec![ControlSurface {
+                deflection: 4.0,
+                hinge_point: 0.75,
+            }],
+            ..CorrectedInput::default()
+        };
+        let partials = discipline
+            .compute_partials(&corrected_inputs(&input))
+            .await
+            .unwrap();
+        let expected = NeuralFoil::new(ModelSize::Medium)
+            .unwrap()
+            .analyze_corrected_with_gradients(&input)
+            .gradient;
+
+        let key = |output: &str| {
+            (
+                output.to_string(),
+                "control_surface_deflections".to_string(),
+            )
+        };
+        assert_eq!(partials[&key("CD")].shape(), [1]);
+        assert_eq!(partials[&key("CD")][[0]], expected.deflection[0].cd);
+        let upper_ue = &partials[&key("upper_ue_over_vinf")];
+        assert_eq!(upper_ue.shape(), [NUM_BL_POINTS]);
+        assert_eq!(upper_ue[[4]], expected.deflection[0].upper.ue_over_vinf[4]);
+    }
+}
+
+#[test]
+fn empty_hinge_points_remove_the_deflection_input() {
+    let mut discipline = corrected_discipline(serde_json::json!("0.75"), false);
+    let options = HashMap::from([(
+        "control_surface_hinge_points".to_string(),
+        serde_json::json!(""),
+    )]);
+    discipline.set_options(&options).unwrap();
+    discipline.registry_mut().clear();
+    discipline.setup().unwrap();
+    assert_eq!(
+        discipline.get_variable_definitions().unwrap().len(),
+        10 + 10
+    );
+}
+
+#[test]
+fn rejects_bad_hinge_points() {
+    let set = |options: &[(&str, serde_json::Value)]| {
+        let mut discipline = BoraDiscipline::new();
+        let options = options
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.clone()))
+            .collect();
+        discipline.set_options(&options)
+    };
+    let corrections = ("include_corrections", serde_json::json!(true));
+    let hinge = |value| ("control_surface_hinge_points", value);
+
+    // Control surfaces exist only in the corrected analysis.
+    assert!(set(&[hinge(serde_json::json!("0.75"))]).is_err());
+    assert!(set(&[corrections.clone(), hinge(serde_json::json!("0.75"))]).is_ok());
+    for bad in [
+        serde_json::json!("75"),
+        serde_json::json!("0.7; 0.8"),
+        serde_json::json!("nan"),
+        serde_json::json!([0.7, "flap"]),
+        serde_json::json!(true),
+    ] {
+        assert!(
+            set(&[corrections.clone(), hinge(bad.clone())]).is_err(),
+            "{bad}"
+        );
+    }
 }

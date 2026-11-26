@@ -18,8 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Philote-Python (`scripts/smoke_image.sh`), and the tested images are published unchanged
   (`scripts/publish_image.sh`): `next` from `develop`, and the version, series and `latest`
   tags for releases
+- Philote discipline option `control_surface_hinge_points` (with `include_corrections`): one
+  control surface per hinge point, deflected by the new `control_surface_deflections` input
+  (deg), with analytic partials of every output including the boundary layer
 
 ### Changed
+
+- **Breaking:** `Error`, `ModelSize` and the output types (`AeroOutput`, `AeroScalars`,
+  `BoundaryLayerData`, the gradient, tangent and result types, `CorrectedOutput`,
+  `CorrectedGradients`, `CorrectedResult`, `FittedAirfoil`, `NormalizedCoordinates`) are
+  `#[non_exhaustive]`, so later releases can add variants and fields without a major version.
+  Outside the crate, match `Error` and `ModelSize` with a wildcard arm, destructure outputs with
+  `..`, and build them from `Default`. The input types stay exhaustive
+- **Breaking:** the `source` of `Error::Open` is a boxed `dyn std::error::Error` instead of
+  `hdf5_pure::Error`, so the HDF5 reader is no longer part of the public API and can be upgraded
+  in a minor release
 
 - Release workflow: builds and smoke-tests the Docker image from the prepared release commit
   before tagging, and pushes nothing (commit, tag, images, GitHub Release, crates.io) unless

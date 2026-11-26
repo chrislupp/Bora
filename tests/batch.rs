@@ -194,28 +194,27 @@ fn analyze_batch_into_matches_analyze_batch_and_reuses_workspace() {
 
 /// The scalar fields of an [`AeroOutput`], for comparison with [`AeroScalars`].
 fn scalars_of(output: &AeroOutput) -> AeroScalars {
-    AeroScalars {
-        analysis_confidence: output.analysis_confidence,
-        cl: output.cl,
-        cd: output.cd,
-        cm: output.cm,
-        top_xtr: output.top_xtr,
-        bot_xtr: output.bot_xtr,
-    }
+    let mut scalars = AeroScalars::default();
+    scalars.analysis_confidence = output.analysis_confidence;
+    scalars.cl = output.cl;
+    scalars.cd = output.cd;
+    scalars.cm = output.cm;
+    scalars.top_xtr = output.top_xtr;
+    scalars.bot_xtr = output.bot_xtr;
+    scalars
 }
 
 /// An [`AeroOutput`] carrying only the given scalars, so that the scalar
 /// fields can be compared with [`compare_outputs`].
 fn output_of(scalars: &AeroScalars) -> AeroOutput {
-    AeroOutput {
-        analysis_confidence: scalars.analysis_confidence,
-        cl: scalars.cl,
-        cd: scalars.cd,
-        cm: scalars.cm,
-        top_xtr: scalars.top_xtr,
-        bot_xtr: scalars.bot_xtr,
-        ..AeroOutput::default()
-    }
+    let mut output = AeroOutput::default();
+    output.analysis_confidence = scalars.analysis_confidence;
+    output.cl = scalars.cl;
+    output.cd = scalars.cd;
+    output.cm = scalars.cm;
+    output.top_xtr = scalars.top_xtr;
+    output.bot_xtr = scalars.bot_xtr;
+    output
 }
 
 #[test]

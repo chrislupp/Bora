@@ -45,8 +45,9 @@ use philote_mdo::{
 };
 
 use crate::{
-    AeroInput, AeroScalars, BoundaryLayerData, BoundaryLayerGradients, CorrectedInput, Gradient,
-    ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE, NeuralFoil, input_index,
+    AeroInput, AeroScalars, BoundaryLayerData, BoundaryLayerGradients, ControlSurface,
+    CorrectedInput, CorrectedOutput, Gradient, ModelSize, NUM_BL_POINTS, NUM_CST_WEIGHTS_PER_SIDE,
+    NeuralFoil, input_index,
 };
 
 /// One named discipline input and its slice of the gradient vector.
@@ -111,6 +112,13 @@ const MACH_BLOCK: InputBlock = InputBlock {
     size: 1,
 };
 
+/// The option holding the hinge locations of the control surfaces.
+const HINGE_POINTS_OPTION: &str = "control_surface_hinge_points";
+
+/// The input holding the control surface deflections, present when the
+/// `control_surface_hinge_points` option names at least one surface.
+const DEFLECTIONS: &str = "control_surface_deflections";
+
 /// Outputs that exist only with the `include_corrections` option.
 const CORRECTION_OUTPUTS: [&str; 4] = ["Cpmin", "Cpmin_0", "mach_crit", "mach_dd"];
 
@@ -121,6 +129,23 @@ const SCALAR_OUTPUTS: [&str; 6] = [
     "Top_Xtr",
     "Bot_Xtr",
     "analysis_confidence",
+];
+
+/// Reads one scalar field of a corrected output.
+type CorrectedField = fn(&CorrectedOutput) -> f64;
+
+/// The scalar outputs of a corrected analysis, by variable name.
+const CORRECTED_SCALARS: [(&str, CorrectedField); 10] = [
+    ("CL", |o| o.cl),
+    ("CD", |o| o.cd),
+    ("CM", |o| o.cm),
+    ("Top_Xtr", |o| o.top_xtr),
+    ("Bot_Xtr", |o| o.bot_xtr),
+    ("analysis_confidence", |o| o.analysis_confidence),
+    ("Cpmin", |o| o.cpmin),
+    ("Cpmin_0", |o| o.cpmin_0),
+    ("mach_crit", |o| o.mach_crit),
+    ("mach_dd", |o| o.mach_dd),
 ];
 
 const BL_OUTPUTS: [&str; 6] = [
@@ -144,6 +169,9 @@ const BL_OUTPUTS: [&str; 6] = [
 ///   - `alpha` \[deg\], `Re`, `n_crit`, `xtr_upper`, `xtr_lower`: operating
 ///     condition
 ///   - `mach` (with the `include_corrections` option): Mach number
+///   - `control_surface_deflections` \[n\] \[deg\] (with the
+///     `control_surface_hinge_points` option): deflection of each control
+///     surface, positive trailing edge down
 ///
 /// Outputs: `CL`, `CD`, `CM`, `Top_Xtr`, `Bot_Xtr`, `analysis_confidence`, and
 /// (when enabled via the `include_boundary_layer` option) the boundary layer
@@ -168,10 +196,17 @@ const BL_OUTPUTS: [&str; 6] = [
 ///   - `include_360_deg_effects` (bool): with `include_corrections`, also
 ///     blend into the post-stall model at large angles of attack (default
 ///     true)
+///   - `control_surface_hinge_points` (str): with `include_corrections`, the
+///     hinge locations (x/c, each in \[0, 1\]) of the control surfaces on the
+///     section, separated by commas or spaces, e.g. `"0.75"` or `"0.7, 0.85"`;
+///     one `control_surface_deflections` entry per hinge point, in this order.
+///     A list of numbers is accepted as well. Empty (the default) means no
+///     control surfaces
 ///
 /// Partials are row-major `[output_size x input_size]` blocks, with singleton
 /// dimensions dropped. The boundary layer does not depend on `mach`, so no
-/// partials are declared for that pair.
+/// partials are declared for that pair; it does depend on the deflections,
+/// through the angle of attack shift.
 pub struct BoraDiscipline {
     registry: VariableRegistry,
     model: OnceLock<NeuralFoil>,
@@ -180,6 +215,7 @@ pub struct BoraDiscipline {
     include_boundary_layer: bool,
     include_corrections: bool,
     include_360_deg_effects: bool,
+    hinge_points: Vec<f64>,
 }
 
 impl Default for BoraDiscipline {
@@ -192,6 +228,7 @@ impl Default for BoraDiscipline {
             include_boundary_layer: false,
             include_corrections: false,
             include_360_deg_effects: true,
+            hinge_points: Vec::new(),
         }
     }
 }
@@ -243,14 +280,61 @@ impl BoraDiscipline {
             .chain(self.include_corrections.then_some(&MACH_BLOCK))
     }
 
+    /// Whether the `control_surface_deflections` input exists.
+    fn has_control_surfaces(&self) -> bool {
+        !self.hinge_points.is_empty()
+    }
+
     fn read_corrected_input(&self, inputs: &ArrayMap) -> Result<CorrectedInput> {
+        let control_surfaces = if self.has_control_surfaces() {
+            let deflections = read_input(inputs, DEFLECTIONS, self.hinge_points.len())?;
+            self.hinge_points
+                .iter()
+                .zip(deflections)
+                .map(|(&hinge_point, deflection)| ControlSurface {
+                    deflection,
+                    hinge_point,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         Ok(CorrectedInput {
             aero: read_aero_input(inputs)?,
             mach: read_scalar(inputs, "mach")?,
-            control_surfaces: Vec::new(),
+            control_surfaces,
             include_360_deg_effects: self.include_360_deg_effects,
         })
     }
+}
+
+/// Reads the `control_surface_hinge_points` option: a string of numbers
+/// separated by commas or whitespace, a list of numbers, or one number.
+fn parse_hinge_points(value: &serde_json::Value) -> Result<Vec<f64>> {
+    let invalid = || {
+        PhiloteError::config_error(format!(
+            "{HINGE_POINTS_OPTION}: expected hinge locations x/c in [0, 1], separated by \
+             commas or spaces, got {value}"
+        ))
+    };
+    let points = match value {
+        serde_json::Value::Null => Vec::new(),
+        serde_json::Value::Number(number) => vec![number.as_f64().ok_or_else(invalid)?],
+        serde_json::Value::String(text) => text
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|token| !token.is_empty())
+            .map(|token| token.parse::<f64>().map_err(|_| invalid()))
+            .collect::<Result<_>>()?,
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|item| item.as_f64().ok_or_else(invalid))
+            .collect::<Result<_>>()?,
+        _ => return Err(invalid()),
+    };
+    if points.iter().any(|h| !(0.0..=1.0).contains(h)) {
+        return Err(invalid());
+    }
+    Ok(points)
 }
 
 fn read_input(inputs: &ArrayMap, name: &str, size: usize) -> Result<Vec<f64>> {
@@ -363,6 +447,54 @@ fn insert_bl_partials(
     }
 }
 
+/// The boundary layer distribution of one output, by variable name.
+fn distribution<'a>(output: &'a CorrectedOutput, name: &str) -> &'a [f64; NUM_BL_POINTS] {
+    match name {
+        "upper_theta" => &output.upper.theta,
+        "upper_H" => &output.upper.h,
+        "upper_ue_over_vinf" => &output.upper.ue_over_vinf,
+        "lower_theta" => &output.lower.theta,
+        "lower_H" => &output.lower.h,
+        "lower_ue_over_vinf" => &output.lower.ue_over_vinf,
+        _ => unreachable!("not a boundary layer output: {name}"),
+    }
+}
+
+/// Adds the partials with respect to the control surface deflections, given
+/// the derivatives of every output with respect to each deflection: shape
+/// `[n]` for a scalar output and `[NUM_BL_POINTS x n]` for a boundary layer
+/// distribution, with singleton dimensions dropped.
+fn insert_deflection_partials(
+    partials: &mut PartialMap,
+    deflection: &[CorrectedOutput],
+    include_boundary_layer: bool,
+) {
+    let n = deflection.len();
+    for (name, value) in CORRECTED_SCALARS {
+        partials.insert(
+            (name.to_string(), DEFLECTIONS.to_string()),
+            array(&[n], deflection.iter().map(value).collect()),
+        );
+    }
+    if !include_boundary_layer {
+        return;
+    }
+    let shape: &[usize] = if n == 1 {
+        &[NUM_BL_POINTS]
+    } else {
+        &[NUM_BL_POINTS, n]
+    };
+    for name in BL_OUTPUTS {
+        let values = (0..NUM_BL_POINTS)
+            .flat_map(|i| deflection.iter().map(move |d| distribution(d, name)[i]))
+            .collect();
+        partials.insert(
+            (name.to_string(), DEFLECTIONS.to_string()),
+            array(shape, values),
+        );
+    }
+}
+
 impl Discipline for BoraDiscipline {
     impl_registry!(registry);
 
@@ -387,7 +519,8 @@ impl Discipline for BoraDiscipline {
         self.add_option("data_directory", "str")?;
         self.add_option("include_boundary_layer", "bool")?;
         self.add_option("include_corrections", "bool")?;
-        self.add_option("include_360_deg_effects", "bool")
+        self.add_option("include_360_deg_effects", "bool")?;
+        self.add_option(HINGE_POINTS_OPTION, "str")
     }
 
     fn set_options(&mut self, options: &HashMap<String, serde_json::Value>) -> Result<()> {
@@ -406,6 +539,16 @@ impl Discipline for BoraDiscipline {
         if let Some(value) = options.get("include_360_deg_effects") {
             self.include_360_deg_effects = value.as_bool().unwrap_or(true);
         }
+        let hinge_points = match options.get(HINGE_POINTS_OPTION) {
+            Some(value) => parse_hinge_points(value)?,
+            None => self.hinge_points.clone(),
+        };
+        if !hinge_points.is_empty() && !self.include_corrections {
+            return Err(PhiloteError::config_error(format!(
+                "{HINGE_POINTS_OPTION} requires include_corrections"
+            )));
+        }
+        self.hinge_points = hinge_points;
 
         // Rebuild the model eagerly so bad options fail the SetOptions RPC
         // rather than the first compute.
@@ -425,6 +568,9 @@ impl Discipline for BoraDiscipline {
         self.add_input("xtr_lower", &[1], "")?;
         if self.include_corrections {
             self.add_input(MACH_BLOCK.name, &[1], "")?;
+        }
+        if self.has_control_surfaces() {
+            self.add_input(DEFLECTIONS, &[self.hinge_points.len()], "deg")?;
         }
 
         for name in self.scalar_outputs() {
@@ -454,6 +600,15 @@ impl Discipline for BoraDiscipline {
                 self.declare_partials(output, block.name)?;
             }
         }
+        if self.has_control_surfaces() {
+            let outputs: Vec<_> = self
+                .scalar_outputs()
+                .chain(bl_outputs.iter().copied())
+                .collect();
+            for output in outputs {
+                self.declare_partials(output, DEFLECTIONS)?;
+            }
+        }
         Ok(())
     }
 }
@@ -465,20 +620,8 @@ impl ExplicitDiscipline for BoraDiscipline {
         let mut outputs = HashMap::new();
         if self.include_corrections {
             let aero = model.analyze_corrected(&self.read_corrected_input(inputs)?);
-            let values = [
-                ("CL", aero.cl),
-                ("CD", aero.cd),
-                ("CM", aero.cm),
-                ("Top_Xtr", aero.top_xtr),
-                ("Bot_Xtr", aero.bot_xtr),
-                ("analysis_confidence", aero.analysis_confidence),
-                ("Cpmin", aero.cpmin),
-                ("Cpmin_0", aero.cpmin_0),
-                ("mach_crit", aero.mach_crit),
-                ("mach_dd", aero.mach_dd),
-            ];
-            for (name, value) in values {
-                outputs.insert(name.to_string(), array(&[1], vec![value]));
+            for (name, value) in CORRECTED_SCALARS {
+                outputs.insert(name.to_string(), array(&[1], vec![value(&aero)]));
             }
             if self.include_boundary_layer {
                 insert_boundary_layer(&mut outputs, &aero.upper, &aero.lower);
@@ -546,6 +689,13 @@ impl ExplicitDiscipline for BoraDiscipline {
             }
             if self.include_boundary_layer {
                 insert_all_bl_partials(&mut partials, &grad.upper, &grad.lower);
+            }
+            if self.has_control_surfaces() {
+                insert_deflection_partials(
+                    &mut partials,
+                    &grad.deflection,
+                    self.include_boundary_layer,
+                );
             }
             return Ok(partials);
         }
