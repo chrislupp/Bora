@@ -96,7 +96,10 @@ API. Each of those functions returns
 | `SingularFit` | A Kulfan fit problem is degenerate |
 
 `Error` implements `std::error::Error`, so it works with `?` in functions
-returning `Box<dyn std::error::Error>` and with error-handling crates.
+returning `Box<dyn std::error::Error>` and with error-handling crates. It is
+`#[non_exhaustive]`, so a `match` on it needs a wildcard arm. The `source` of
+`Open` is a boxed error from the HDF5 reader; display it or follow
+`std::error::Error::source`, but do not rely on its concrete type.
 
 ## Threads
 

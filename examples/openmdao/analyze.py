@@ -12,6 +12,11 @@ The model then sweeps the lift coefficient, and computes the derivatives of
 drag with respect to the shape at fixed lift, which it checks against central
 differences of the solved model.
 
+Part 3 adds a plain flap at 75% chord and holds the angle of attack instead:
+the same Newton solve now finds the flap deflection that gives the lift, and
+the drag is compared with that of Part 2. It then asks which way to change
+the angle to save drag at fixed lift, and checks that derivative as well.
+
 Start the server first, in a second terminal, from the repository root:
     cargo run --release --features philote --bin bora_server
 
@@ -41,6 +46,16 @@ N_CRIT = 9.0
 
 CL_TARGET = 1.0
 CL_SWEEP = np.arange(0.2, 1.61, 0.2)
+
+# Part 3: a plain flap at 75% chord on the airfoil held at a fixed angle.
+FLAP_HINGE = 0.75
+FLAP_ALPHA = 2.0
+FLAP_CL_SWEEP = np.arange(0.6, 1.41, 0.2)
+
+# The options belong to the server and persist between clients, so every client
+# states all of the ones it depends on.
+PLAIN = {"include_corrections": False, "control_surface_hinge_points": ""}
+FLAPPED = {"include_corrections": True, "control_surface_hinge_points": str(FLAP_HINGE)}
 
 
 def connect(address, timeout=10.0):
@@ -76,7 +91,7 @@ def open_client(channel, model_size):
     """A bare Philote client, set up the way OpenMDAO's component sets up its own."""
     client = pmg.ExplicitClient(channel=channel)
     client.get_discipline_info()
-    client.send_options({"model_size": model_size})
+    client.send_options({"model_size": model_size, **PLAIN})
     client.run_setup()  # the server reloads the network here
     client.get_variable_definitions()
     client.get_partials_definitions()
@@ -102,22 +117,27 @@ def direct_call(channel, model_size):
 
 
 class FixedLift(om.Group):
-    """Bora at a prescribed lift coefficient: Newton drives alpha until CL = CL_target."""
+    """Bora at a prescribed lift coefficient: Newton drives a control until CL = CL_target."""
 
     def initialize(self):
         self.options.declare("channel")
         self.options.declare("model_size", types=str)
+        self.options.declare("bora_options", types=dict, default=PLAIN)
+        self.options.declare("control", types=str, default="alpha",
+                             desc="the input the solver adjusts, in deg")
 
     def setup(self):
         self.add_subsystem(
             "bora",
             pmom.RemoteExplicitComponent(
-                channel=self.options["channel"], model_size=self.options["model_size"]
+                channel=self.options["channel"], model_size=self.options["model_size"],
+                **self.options["bora_options"],
             ),
             promotes=["*"],
         )
         balance = om.BalanceComp()
-        balance.add_balance("alpha", units="deg", val=2.0, lhs_name="CL", rhs_name="CL_target")
+        balance.add_balance(self.options["control"], units="deg", val=2.0,
+                            lhs_name="CL", rhs_name="CL_target")
         self.add_subsystem("balance", balance, promotes=["*"])
 
         newton = self.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
@@ -183,6 +203,68 @@ def fixed_lift(channel, model_size):
           f"central difference {fd: .6e}")
 
 
+def flapped_problem(channel, model_size, control):
+    """A FixedLift model of the flapped airfoil that adjusts `control` to hold the lift."""
+    prob = om.Problem(reports=False)
+    prob.model.add_subsystem(
+        "wing",
+        FixedLift(channel=channel, model_size=model_size, bora_options=FLAPPED,
+                  control=control),
+        promotes=["*"],
+    )
+    prob.setup()
+    for name, value in flow_inputs(alpha=FLAP_ALPHA).items():
+        prob.set_val(name, value)
+    prob.set_val("mach", 0.0)
+    prob.set_val("control_surface_deflections", 0.0)
+    return prob
+
+
+def flap_at_fixed_angle(channel, model_size):
+    """Part 3: the lift held by a flap at a fixed angle of attack."""
+    prob = flapped_problem(channel, model_size, control="control_surface_deflections")
+    newton = prob.model.wing.nonlinear_solver
+
+    # For comparison, the same airfoil with the flap at zero and the lift held
+    # by the angle, as in Part 2. Both models set the same server options.
+    by_angle = flapped_problem(channel, model_size, control="alpha")
+
+    def cd_by_angle(target):
+        by_angle.set_val("CL_target", target)
+        by_angle.run_model()
+        return by_angle.get_val("CD")[0]
+
+    print(f"\nFlap at {FLAP_HINGE:.0%} chord, alpha = {FLAP_ALPHA} deg, Re = {REYNOLDS:.2e}")
+    print(f"{'CL':>6}  {'flap':>7}  {'CD':>8}  {'CM':>8}  {'CD, by angle':>12}  {'penalty':>7}"
+          f"  {'Newton':>6}")
+    for target in FLAP_CL_SWEEP:
+        prob.set_val("CL_target", target)
+        prob.run_model()
+        cl, cd, cm = (prob.get_val(k)[0] for k in ("CL", "CD", "CM"))
+        flap = prob.get_val("control_surface_deflections")[0]
+        cd_angle = cd_by_angle(target)
+        print(f"{cl:6.3f}  {flap:7.3f}  {cd:8.5f}  {cm:8.4f}  {cd_angle:12.5f}  "
+              f"{cd / cd_angle - 1:7.1%}  {newton._iter_count:6d}")
+
+    # At fixed lift, which way should the angle go? Raising it lets the flap
+    # come back, and OpenMDAO gets both derivatives through the Newton solve.
+    prob.set_val("CL_target", 1.2)
+    prob.run_model()
+    totals = prob.compute_totals(of=["CD", "control_surface_deflections"], wrt=["alpha"])
+    dcd_dalpha = totals["CD", "alpha"][0, 0]
+    print(f"\nAt CL = 1.2 (flap = {prob.get_val('control_surface_deflections')[0]:.3f} deg):")
+    print(f"  dflap/dalpha = {totals['control_surface_deflections', 'alpha'][0, 0]:.4f}")
+
+    step = 1e-4
+    drag = []
+    for sign in (1.0, -1.0):
+        prob.set_val("alpha", FLAP_ALPHA + sign * step)
+        prob.run_model()
+        drag.append(prob.get_val("CD")[0])
+    fd = (drag[0] - drag[1]) / (2.0 * step)
+    print(f"  dCD/dalpha at fixed CL: analytic {dcd_dalpha: .6e}, central difference {fd: .6e}")
+
+
 def fmt(values, digits=4):
     return " ".join(f"{v:{digits + 4}.{digits}f}" for v in np.ravel(values))
 
@@ -198,6 +280,7 @@ def main():
     channel = connect(args.server)
     direct_call(channel, args.model_size)
     fixed_lift(channel, args.model_size)
+    flap_at_fixed_angle(channel, args.model_size)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,8 @@ length. See [Inputs and outputs](../guide/analysis.md),
 
 `XXSmall`, `XSmall`, `Small`, `Medium`, `Large`, `XLarge` (the default),
 `XXLarge`, `XXXLarge`. `ModelSize::ALL` lists them in order; `as_str()`,
-`Display` and `FromStr` convert to and from names such as `"xlarge"`. See
+`Display` and `FromStr` convert to and from names such as `"xlarge"`. The enum
+is `#[non_exhaustive]`, so a `match` on it needs a wildcard arm. See
 [Choosing a network size](../guide/model-sizes.md).
 
 ## Data types
@@ -81,6 +82,15 @@ length. See [Inputs and outputs](../guide/analysis.md),
 | `CorrectedResult` | `output: CorrectedOutput`, `gradient: CorrectedGradients` |
 | `BatchWorkspace` | Reusable scratch space for the batched calls; grows on first use |
 | `Point2` | `[f64; 2]`, an airfoil coordinate |
+
+The output types (`AeroOutput`, `AeroScalars`, `BoundaryLayerData`, the
+gradient, tangent and result types, the corrected outputs, `FittedAirfoil` and
+`NormalizedCoordinates`) are `#[non_exhaustive]`, so that later releases can
+add fields: read their fields freely, but outside Bora build them from
+`Default` and assign fields rather than with a struct expression, and
+destructure them with a trailing `..`. The input types (`AeroInput`,
+`KulfanParameters`, `OperatingPoint`, `ControlSurface`, `CorrectedInput`)
+are exhaustive, so `AeroInput { alpha, ..input }` works.
 
 The `input_index` module names the entries of a `Gradient`: `UPPER_WEIGHTS`,
 `LOWER_WEIGHTS`, `LEADING_EDGE_WEIGHT`, `TE_THICKNESS`, `ALPHA`, `RE`,
@@ -116,7 +126,8 @@ See [Airfoil geometry](../guide/geometry.mdx).
 
 ## Errors
 
-`bora::Result<T>` is `Result<T, bora::Error>`. Constructors, loaders and the
+`bora::Result<T>` is `Result<T, bora::Error>`, and `Error` is
+`#[non_exhaustive]`. Constructors, loaders and the
 geometry utilities return it; analysis calls do not. The variants of `Error`
 are `Open`, `Io`, `Format`, `DataDirNotFound`, `DimensionMismatch`,
 `InvalidArgument` and `SingularFit`, described in

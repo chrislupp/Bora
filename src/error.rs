@@ -33,16 +33,21 @@ use std::path::PathBuf;
 
 /// Errors raised while loading model data or preparing an analysis.
 ///
-/// Analysis calls themselves never fail.
+/// Analysis calls themselves never fail. New variants may be added in minor
+/// releases, so a `match` on an `Error` needs a wildcard arm.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// An HDF5 file could not be opened or parsed.
     #[error("cannot open {what} HDF5 file {path}: {source}")]
     Open {
+        /// Which file it is, e.g. "network weights".
         what: &'static str,
         path: PathBuf,
+        /// The underlying error of the HDF5 reader. Its type is not part of
+        /// the API; display it, or walk [`std::error::Error::source`].
         #[source]
-        source: hdf5_pure::Error,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
 
     /// A file could not be read.

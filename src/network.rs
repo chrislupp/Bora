@@ -125,7 +125,7 @@ fn open_file(path: &Path, what: &'static str) -> Result<File> {
     File::open(path).map_err(|source| Error::Open {
         what,
         path: path.to_path_buf(),
-        source,
+        source: source.into(),
     })
 }
 

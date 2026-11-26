@@ -63,6 +63,7 @@ Inside them the network interpolates; outside them it extrapolates, and the
 ## Outputs
 
 ```rust
+#[non_exhaustive]
 pub struct AeroOutput {
     pub analysis_confidence: f64,
     pub cl: f64,
@@ -90,6 +91,7 @@ Each surface carries three distributions sampled at `NUM_BL_POINTS` = 32
 stations:
 
 ```rust
+#[non_exhaustive]
 pub struct BoundaryLayerData {
     pub theta: [f64; 32],        // momentum thickness / chord
     pub h: [f64; 32],            // shape factor
