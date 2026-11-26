@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: "Analysis over Philote"
-description: "Call Bora from Python through its Philote server: a bare client call, then an OpenMDAO model that flies the airfoil at a fixed lift coefficient."
+description: "Call Bora from Python through its Philote server: a bare client call, an OpenMDAO model that flies the airfoil at a fixed lift coefficient, and a flap that holds the lift instead of the angle."
 ---
 
 import CodeBlock from "@theme/CodeBlock";
@@ -18,7 +18,9 @@ through [Philote](../guide/philote.md). You will learn how to:
 - put the same discipline in an OpenMDAO model and solve for the angle of
   attack that gives a chosen lift coefficient,
 - get derivatives of the solved model, with the angle adjusting to hold the
-  lift fixed.
+  lift fixed,
+- add a flap and let it hold the lift at a fixed angle, and find out what that
+  costs in drag.
 
 The complete script is `examples/openmdao/analyze.py`. It analyzes the
 airfoil from the [quickstart](../getting-started/quickstart.md) at a Reynolds
@@ -50,8 +52,10 @@ you stop it. Without a Rust toolchain, run the
 <DockerRun />
 
 Either way, the server listens on the same port. Every client in this example talks to that one process. The
-options, such as the network size, belong to the server, so clients that
-share a server should agree on them.
+options, such as the network size, belong to the server and stay set until a
+client changes them. Clients that share a server should agree on them, and
+each client should set every option it relies on rather than assume the
+defaults.
 
 ## Step 2: Run the example
 
@@ -75,7 +79,11 @@ partials:
 
 ```python title="examples/openmdao/analyze.py (abridged)"
 client = pmg.ExplicitClient(channel=channel)
-client.send_options({"model_size": model_size})
+client.send_options({
+    "model_size": model_size,
+    "include_corrections": False,         # set explicitly: a previous client
+    "control_surface_hinge_points": "",   # may have changed them (step 6)
+})
 client.run_setup()  # the server reloads the network here
 client.get_variable_definitions()
 client.get_partials_definitions()
@@ -201,6 +209,92 @@ the fixed-lift derivative is the one you want.
 fixed-lift derivative from Bora's partials by the implicit function theorem,
 without re-solving, and it matches the finite difference of the complete
 solve.
+
+## Step 6: Hold the lift with a flap
+
+So far the angle of attack has set the lift. On an aircraft the wing's
+incidence is often fixed, and a flap does the job instead. Bora models
+control surfaces as part of the [corrected analysis](../guide/corrections.md),
+so the third part of the script turns on `include_corrections` and puts a
+plain flap at 75% chord with the `control_surface_hinge_points` option. That
+adds the `mach` input and a `control_surface_deflections` input, one entry per
+hinge point, in degrees with the trailing edge down (see
+[Control surfaces](../guide/philote.md#control-surfaces)).
+
+The fixed-lift group from step 4 needs one change: the balance drives the
+deflection instead of the angle. The angle stays at 2°:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+FLAPPED = {"include_corrections": True, "control_surface_hinge_points": "0.75"}
+
+prob.model.add_subsystem(
+    "wing",
+    FixedLift(channel=channel, model_size=model_size, bora_options=FLAPPED,
+              control="control_surface_deflections"),
+    promotes=["*"],
+)
+prob.setup()
+prob.set_val("alpha", 2.0)
+prob.set_val("mach", 0.0)
+```
+
+For comparison, a second model of the same flapped airfoil keeps the flap at
+zero and holds the lift with the angle, as step 4 does. Both models set the
+same options, so they can share the server. Sweeping the lift coefficient:
+
+```text
+Flap at 75% chord, alpha = 2.0 deg, Re = 1.00e+06
+    CL     flap        CD        CM  CD, by angle  penalty  Newton
+ 0.600   -4.044   0.00714   -0.1316       0.00671     6.4%       4
+ 0.800   -0.754   0.00714   -0.1316       0.00713     0.2%       4
+ 1.000    2.774   0.00768   -0.1289       0.00746     2.9%       4
+ 1.200    6.314   0.01049   -0.1266       0.00904    16.0%       4
+ 1.400   10.138   0.01648   -0.1216       0.01142    44.3%       4
+```
+
+**Newton converges as fast as before.** The partials of every output with
+respect to the deflections come from Bora, so the solve takes four iterations
+at each point.
+
+**The flap acts as a change of angle.** In the model Bora takes from
+AeroSandbox, each degree of deflection of a flap hinged at 75% chord shifts
+the angle the network sees by about 0.55°, so 6.3° of flap at 2° gives the
+same section as 5.45° of angle. The pitching moment is therefore that of the
+angle-held airfoil. The model has no separate flap moment, so it does not
+show the nose-down moment of a real flap.
+
+**What the flap adds is drag.** The deflection also multiplies the drag by a
+factor fitted to wind tunnel data, which grows with the square of small
+deflections. The penalty column is that factor: almost nothing within a
+degree of neutral, 16% at 6°, and 44% at 10°. Holding lift with the flap
+costs drag that holding it with the angle does not.
+
+The "by angle" drag is up to 1% above step 4's at the same lift. That is
+because the corrected analysis includes AeroSandbox's smoothed
+Prandtl-Glauert factor, which is about 1.0045 rather than exactly 1 at Mach 0.
+The lift at a given angle is about half a percent lower, so the angle and drag
+needed for a given lift are slightly higher.
+
+With the deflection as a solver variable, the derivatives of the solved model
+answer a design question: at a lift coefficient of 1.2, should the incidence
+go up or down? `compute_totals` differentiates through the Newton solve, with
+the flap moving to keep the lift on target, and the script checks the result
+against a central difference of the re-solved model:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+totals = prob.compute_totals(of=["CD", "control_surface_deflections"], wrt=["alpha"])
+```
+
+```text
+At CL = 1.2 (flap = 6.314 deg):
+  dflap/dalpha = -1.8286
+  dCD/dalpha at fixed CL: analytic -8.862694e-04, central difference -8.862694e-04
+```
+
+Each degree of extra incidence lets the flap come back by 1.83°, the inverse
+of its 0.55° per degree. That lowers the drag by about 8.9 × 10⁻⁴, or 8%,
+so at this lift the incidence should go up. The derivative agrees with the
+finite difference to all seven digits shown.
 
 ## The complete script
 

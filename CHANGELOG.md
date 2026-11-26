@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tags for releases
 - Philote discipline option `control_surface_hinge_points` (with `include_corrections`): one
   control surface per hinge point, deflected by the new `control_surface_deflections` input
-  (deg), with analytic partials of every output including the boundary layer
+  (deg), with analytic partials of every output including the boundary layer. The
+  "Analysis over Philote" example (`examples/openmdao/analyze.py`) gains a third part in which
+  a flap holds the lift at a fixed angle, compared with holding it by the angle
 
 ### Changed
 

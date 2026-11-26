@@ -146,7 +146,8 @@ comp = pmom.RemoteExplicitComponent(
 The option is a string because OpenMDAO only passes Philote options of a
 scalar type; a client that talks to the server directly may send a list of
 numbers or a single number instead. An empty string removes the control
-surfaces again.
+surfaces again. [Analysis over Philote](../examples/philote.mdx#step-6-hold-the-lift-with-a-flap)
+works through an example: a flap that holds the lift at a fixed angle.
 
 Leave `include_boundary_layer` off unless you need those outputs. Without it
 the discipline computes values with `analyze_scalars` and partials with the
