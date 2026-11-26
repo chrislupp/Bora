@@ -5,25 +5,50 @@ on:
     types: [closed]
     branches: [main]
 
+# Three jobs, so that a failing Docker image blocks the release as in Scirocco:
+#   prepare  version bump, changelog, docs snapshot; signed commit and tag, kept
+#            local and handed on as a git bundle (nothing is pushed)
+#   images   builds and smoke-tests the bora_server image for linux/amd64 and
+#            linux/arm64 from that commit (docker-image.yml)
+#   publish  only if both images passed: pushes the commit and tag to main, then
+#            the tested images (unchanged) to Docker Hub, then the GitHub Release
+#            (which triggers publish.yml for crates.io)
+
 permissions:
   contents: write
 
+# Serialize version calculation, commit, and tag publication.
+concurrency:
+  group: bora-release
+  cancel-in-progress: false
+
 jobs:
-  release:
+  prepare:
     if: >
       github.event.pull_request.merged == true &&
       (contains(github.event.pull_request.labels.*.name, 'release') ||
        contains(github.event.pull_request.labels.*.name, 'prerelease'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      tag_version: ${{ steps.version.outputs.tag_version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
     # ── Checkout ──────────────────────────────────────────────────────
-    - name: Checkout main
+    - name: Checkout merged candidate
       uses: actions/checkout@v7
       with:
-        ref: main
+        ref: ${{ github.event.pull_request.merge_commit_sha }}
         fetch-depth: 0
-        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - name: Require candidate to be current main
+      env:
+        CANDIDATE: ${{ github.event.pull_request.merge_commit_sha }}
+      run: |
+        git fetch origin main
+        test "$(git rev-parse origin/main)" = "$CANDIDATE"
+        git checkout -B main "$CANDIDATE"
 
     # ── GPG setup for signed commits ─────────────────────────────────
     - name: Generate ephemeral GPG key
@@ -238,16 +263,127 @@ jobs:
         TAG="${{ steps.version.outputs.tag_version }}"
         git tag -a "$TAG" -m "Release ${TAG}"
 
-    - name: Push commit and tag
+    # The commit and tag stay local until the images pass; the bundle carries
+    # them to the other jobs.
+    - name: Bundle the release commit and tag
+      env:
+        CANDIDATE: ${{ github.event.pull_request.merge_commit_sha }}
+        TAG: ${{ steps.version.outputs.tag_version }}
       run: |
-        git push origin main
-        git push origin "${{ steps.version.outputs.tag_version }}"
+        mkdir -p "$RUNNER_TEMP/bundle"
+        git bundle create "$RUNNER_TEMP/bundle/release.bundle" main "refs/tags/$TAG" "^$CANDIDATE"
+        git bundle verify "$RUNNER_TEMP/bundle/release.bundle"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: release-commit
+        path: ${{ runner.temp }}/bundle/release.bundle
+        if-no-files-found: error
+        retention-days: 1
+
+  images:
+    needs: prepare
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+      bundle: release-commit
+
+  publish:
+    needs: [prepare, images]
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout merged candidate
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.merge_commit_sha }}
+        fetch-depth: 0
+        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - uses: actions/download-artifact@v4
+      with:
+        name: release-commit
+        path: ${{ runner.temp }}/bundle
+
+    - name: Restore the release commit and tag
+      env:
+        TAG: ${{ needs.prepare.outputs.tag_version }}
+      run: |
+        git fetch "$RUNNER_TEMP/bundle/release.bundle" \
+          "main:refs/heads/release-candidate" "refs/tags/$TAG:refs/tags/$TAG"
+        git checkout -B main release-candidate
+        git log -1 --oneline
+
+    # ── GPG setup for the signed merge back to develop────────────────────────────────
+    - name: Generate ephemeral GPG key
+      run: |
+        cat > /tmp/gpg-key-params <<GPGEOF
+        %no-protection
+        Key-Type: RSA
+        Key-Length: 4096
+        Subkey-Type: RSA
+        Subkey-Length: 4096
+        Name-Real: github-actions[bot]
+        Name-Email: 41898282+github-actions[bot]@users.noreply.github.com
+        Expire-Date: 1d
+        GPGEOF
+        gpg --batch --gen-key /tmp/gpg-key-params
+        KEY_ID=$(gpg --list-secret-keys --keyid-format=long | grep sec | awk '{print $2}' | cut -d'/' -f2)
+        echo "GPG_KEY_ID=${KEY_ID}" >> "$GITHUB_ENV"
+
+        git config user.name  "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config user.signingkey "${KEY_ID}"
+        git config commit.gpgsign true
+        git config tag.gpgsign true
+
+    - name: Refuse publication if main advanced
+      env:
+        CANDIDATE: ${{ github.event.pull_request.merge_commit_sha }}
+      run: |
+        git fetch origin main
+        test "$(git rev-parse origin/main)" = "$CANDIDATE"
+
+    - name: Push commit and tag
+      env:
+        CANDIDATE: ${{ github.event.pull_request.merge_commit_sha }}
+        TAG: ${{ needs.prepare.outputs.tag_version }}
+      run: |
+        git push --atomic --force-with-lease="refs/heads/main:$CANDIDATE" \
+          origin HEAD:refs/heads/main "refs/tags/$TAG"
+
+    # ── Publish the tested Docker images ─────────────────────────────
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: docker-image-*
+        path: ${{ runner.temp }}/images
+        merge-multiple: true
+
+    - uses: imjasonh/setup-crane@v0.4
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Publish the tested images without rebuilding
+      env:
+        TAG: ${{ needs.prepare.outputs.tag_version }}
+      run: |
+        version="${TAG#v}"
+        tags=("$version")
+        # Pre-releases get only their own tag; stable releases move the series tags.
+        if [[ "$version" != *-* ]]; then
+          tags+=("${version%.*}" "${version%%.*}" latest)
+        fi
+        bash scripts/publish_image.sh chrislupp/bora "$RUNNER_TEMP/images" "${tags[@]}"
 
     # ── Extract release notes ────────────────────────────────────────
     - name: Extract release notes
       id: notes
       run: |
-        TAG="${{ steps.version.outputs.tag_version }}"
+        TAG="${{ needs.prepare.outputs.tag_version }}"
         VERSION="${TAG#v}"
 
         # Extract the section for this version from CHANGELOG.md
@@ -269,10 +405,10 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v3
       with:
-        tag_name: ${{ steps.version.outputs.tag_version }}
-        name: ${{ steps.version.outputs.tag_version }}
+        tag_name: ${{ needs.prepare.outputs.tag_version }}
+        name: ${{ needs.prepare.outputs.tag_version }}
         body_path: /tmp/release-notes.md
-        prerelease: ${{ steps.version.outputs.is_prerelease }}
+        prerelease: ${{ needs.prepare.outputs.is_prerelease }}
         # Must be the PAT, passed as the `token` input: the input defaults to
         # github.token and overrides the GITHUB_TOKEN env var, and a release
         # created by github-actions[bot] does not trigger publish.yml.
@@ -295,6 +431,6 @@ jobs:
           gh pr create \
             --base develop \
             --head main \
-            --title "chore: merge release ${{ steps.version.outputs.tag_version }} back to develop" \
+            --title "chore: merge release ${{ needs.prepare.outputs.tag_version }} back to develop" \
             --body "Automatic merge of release changes back to develop failed due to conflicts. Please resolve manually."
         fi

@@ -31,6 +31,10 @@ cargo run --release --example example
 cargo run --release --example polar
 cargo run --release --example compressible
 
+# Analysis over Philote: a bare Philote-Python client, then an OpenMDAO fixed-lift solve
+# (needs openmdao and philote-mdo; start bora_server first, see the script's docstring)
+python3 examples/openmdao/analyze.py
+
 # OpenMDAO + IPOPT over Philote (needs openmdao, philote-mdo, pyoptsparse with IPOPT;
 # starts bora_server itself)
 python3 examples/openmdao/optimize_daedalus.py
@@ -121,6 +125,7 @@ tests/data/            # Committed HDF5 reference data from Python NeuralFoil
 benches/               # std-only timing harness (`cargo bench`)
 examples/              # Example programs
 data/                  # Network weights (HDF5)
+docker/                # Dockerfile of the bora_server image (Docker Hub chrislupp/bora)
 scripts/               # Weight conversion, reference data generation, release helpers
 docs/                  # Docusaurus documentation site
 .github/workflows/     # CI/CD workflows
@@ -133,6 +138,21 @@ Runs on every push and PR to `main`/`develop`:
 - Formatting check (`cargo fmt`)
 - Clippy (`-D warnings`, all targets and features)
 - Build and test matrix (Ubuntu, stable and MSRV 1.89)
+
+### Docker Workflows (`.github/workflows/docker-image.yml`, `docker.yml`)
+`docker-image.yml` (reusable) builds `docker/Dockerfile` (the `bora_server` image) natively for
+linux/amd64 (`ubuntu-24.04`) and linux/arm64 (`ubuntu-24.04-arm`), smoke-tests each through
+Philote-Python (`scripts/smoke_image.sh` -> `scripts/smoke_server.py`: a bad option is refused,
+then the quickstart airfoil's CL and dCL/dalpha) and uploads each tested image as a
+`docker save` archive. It pushes nothing. `scripts/publish_image.sh` publishes those archives
+unchanged with `crane` (pushed by digest, then one multi-platform index and its tags), so what
+reaches Docker Hub (`chrislupp/bora`) is exactly what was tested, never a rebuild.
+`docker.yml` runs it on every push and PR to `main`/`develop`; pushes to `develop` publish `next`.
+Release tags come only from release.yml (below). Docker Hub has no trusted publishing: both log
+in with the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets. The docs pick the
+tag with `<DockerRun />` (`docs/src/components/DockerRun.tsx`: `next` in the unreleased docs,
+the version in a snapshot). Smoke-test locally with
+`docker build -f docker/Dockerfile -t bora . && bash scripts/smoke_image.sh bora`
 
 ### Docs Workflow (`.github/workflows/docs.yml`)
 Deploys documentation to GitHub Pages when changes are pushed to `develop` in:
@@ -150,13 +170,19 @@ Label-driven release pipeline. Triggered when a labeled PR is merged to `main`.
 | Version bump | `major`, `minor`, or `patch` |
 | Pre-release qualifier | `alpha`, `beta`, or `rc` (only with `prerelease`) |
 
-**What the workflow does on merge:**
-1. Extracts version from `Cargo.toml` and bumps per labels
-2. Updates copyright years (stable releases only, via `scripts/update_copyright.py`)
-3. Updates `version` in `Cargo.toml` (and the package entry in `Cargo.lock`)
-4. Updates `CHANGELOG.md` (converts `[Unreleased]` to versioned section)
-5. Creates a signed commit and annotated tag
-6. Pushes to `main` and creates a GitHub Release
+**What the workflow does on merge** (jobs `prepare` -> `images` -> `publish`, as in Scirocco a
+failing image blocks the release):
+1. Requires the merge commit to still be the tip of `main`
+2. Extracts version from `Cargo.toml` and bumps per labels
+3. Updates copyright years (stable releases only, via `scripts/update_copyright.py`)
+4. Updates `version` in `Cargo.toml` (and the package entry in `Cargo.lock`)
+5. Updates `CHANGELOG.md` (converts `[Unreleased]` to versioned section)
+6. Creates a signed commit and annotated tag, kept local and passed on as a git bundle
+7. Builds and smoke-tests the Docker image for both platforms from that commit
+   (`docker-image.yml`); if either fails, nothing is pushed
+8. Refuses to continue if `main` moved, then pushes the commit and tag atomically, publishes
+   the tested images (version tag; stable releases also `X.Y`, `X` and `latest`), creates the
+   GitHub Release (which triggers publish.yml) and merges `main` back to `develop`
 
 ### Publish Workflow (`.github/workflows/publish.yml`)
 Publishes to crates.io when a stable GitHub Release is published (pre-releases are skipped,

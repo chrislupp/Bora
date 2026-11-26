@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Example `examples/openmdao/analyze.py` and docs page "Analysis over Philote": calls
+  `bora_server` from Python with the bare Philote-Python client, then flies the airfoil at a
+  fixed lift coefficient in OpenMDAO (BalanceComp and Newton on Bora's partials) and checks the
+  fixed-lift shape derivatives against central differences
+- Docker image of the Philote server, `chrislupp/bora` on Docker Hub (`docker/Dockerfile`,
+  linux/amd64 and linux/arm64). Both platforms are built natively and smoke-tested through
+  Philote-Python (`scripts/smoke_image.sh`), and the tested images are published unchanged
+  (`scripts/publish_image.sh`): `next` from `develop`, and the version, series and `latest`
+  tags for releases
+
+### Changed
+
+- Release workflow: builds and smoke-tests the Docker image from the prepared release commit
+  before tagging, and pushes nothing (commit, tag, images, GitHub Release, crates.io) unless
+  both platforms pass; it also refuses to release if `main` moved after the merge
+
 ### Fixed
 
 - Publish workflow: authenticate with crates.io trusted publishing first and fall back to the

@@ -1,0 +1,209 @@
+---
+sidebar_position: 3
+title: "Analysis over Philote"
+description: "Call Bora from Python through its Philote server: a bare client call, then an OpenMDAO model that flies the airfoil at a fixed lift coefficient."
+---
+
+import CodeBlock from "@theme/CodeBlock";
+import analyze from "@site/../examples/openmdao/analyze.py?raw";
+
+# Analysis over Philote
+
+This example runs Bora from Python with no Rust code on the Python side. Bora
+runs as a separate process, `bora_server`, and Python reaches it over gRPC
+through [Philote](../guide/philote.md). You will learn how to:
+
+- start the server and connect to it,
+- call the discipline directly with Philote-Python's client,
+- put the same discipline in an OpenMDAO model and solve for the angle of
+  attack that gives a chosen lift coefficient,
+- get derivatives of the solved model, with the angle adjusting to hold the
+  lift fixed.
+
+The complete script is `examples/openmdao/analyze.py`. It analyzes the
+airfoil from the [quickstart](../getting-started/quickstart.md) at a Reynolds
+number of 10⁶. No optimizer is involved; for that, see
+[Multipoint optimization](./openmdao.mdx).
+
+## Before you start
+
+You need OpenMDAO and Philote-Python (`philote-mdo` on PyPI), both listed in
+`examples/openmdao/requirements.txt`, and either a Rust toolchain to build the
+server or Docker to run its image:
+
+```bash
+pip install -r examples/openmdao/requirements.txt
+```
+
+## Step 1: Start the server
+
+In a second terminal, from the repository root:
+
+```bash
+cargo run --release --features philote --bin bora_server
+```
+
+The first run builds the server. It then listens on `localhost:50051` until
+you stop it. Without a Rust toolchain, run the
+[Docker image](../guide/philote.md#run-it-in-docker) instead:
+
+<DockerRun />
+
+Either way, the server listens on the same port. Every client in this example talks to that one process. The
+options, such as the network size, belong to the server, so clients that
+share a server should agree on them.
+
+## Step 2: Run the example
+
+In the first terminal:
+
+```bash
+python3 examples/openmdao/analyze.py
+```
+
+If the server listens elsewhere, pass `--server host:port`. `--model-size`
+selects the network (default `xlarge`). The script connects with a timeout,
+so a server that is not running gives a message saying how to start one
+rather than a hang.
+
+## Step 3: Call the discipline directly
+
+Philote is not tied to OpenMDAO. Its client speaks the protocol directly, so
+any Python program can use Bora. The client first sets the options, then asks
+the server to set up the discipline and to describe its variables and
+partials:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+client = pmg.ExplicitClient(channel=channel)
+client.send_options({"model_size": model_size})
+client.run_setup()  # the server reloads the network here
+client.get_variable_definitions()
+client.get_partials_definitions()
+```
+
+Inputs go in as a dictionary of NumPy arrays keyed by the
+[variable names](../guide/philote.md#variables). Every input must be present,
+scalars included:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+inputs = flow_inputs(alpha=3.0)  # {"upper_weights": array([...]), "Re": array([1e6]), ...}
+outputs = client.run_compute(inputs)
+partials = client.run_compute_partials(inputs)
+
+print(outputs["CL"][0], partials["CL", "alpha"][0])
+```
+
+Partials come back keyed by (output, input) pairs, in the shapes described in
+[Variables](../guide/philote.md#variables). The script prints the result at
+3°, the operating point that `examples/example.rs` analyzes in Rust:
+
+```text
+Discipline 'Bora' 0.3.0, model size 'xlarge'
+  inputs:  upper_weights lower_weights leading_edge_weight TE_thickness alpha Re n_crit xtr_upper xtr_lower
+  outputs: CL CD CM Top_Xtr Bot_Xtr analysis_confidence
+
+alpha = 3.00 deg, Re = 1.00e+06
+  CL =   0.95162   CD =   0.00729   CM =  -0.13014   L/D =  130.585
+  dCL/dalpha = 0.10185 per deg
+  dCL/d(upper_weights):   0.0876  -0.0515   0.1400   0.4751   0.5213   0.3174   0.1829   0.2422
+```
+
+Every number matches the [Rust example](./analysis.md) to the last digit.
+Going through the server changes how you call Bora, not what it computes.
+
+## Step 4: Fly at a fixed lift coefficient
+
+An aircraft flies at the lift coefficient its weight and speed demand, and
+the angle of attack is whatever produces it. OpenMDAO can solve for that
+angle. Wrap Bora's `RemoteExplicitComponent` in a group together with a
+`BalanceComp`, which adds `alpha` as an implicit variable with the residual
+$C_L - C_{L,\mathrm{target}}$, and let a Newton solver drive the residual to
+zero:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+class FixedLift(om.Group):
+    def setup(self):
+        self.add_subsystem(
+            "bora",
+            pmom.RemoteExplicitComponent(channel=channel, model_size=model_size),
+            promotes=["*"],
+        )
+        balance = om.BalanceComp()
+        balance.add_balance("alpha", units="deg", val=2.0, lhs_name="CL", rhs_name="CL_target")
+        self.add_subsystem("balance", balance, promotes=["*"])
+
+        self.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
+        self.linear_solver = om.DirectSolver()
+```
+
+Newton needs the derivative of the residual with respect to `alpha`, and it
+gets it from Bora: `RemoteExplicitComponent` declares the partials the server
+offers and fetches them on every Newton step.
+
+The script sweeps the target from 0.2 to 1.6. Each solve starts from the
+previous angle:
+
+```text
+Fixed lift, Re = 1.00e+06
+    CL    alpha        CD        CM     L/D  confidence  Newton
+ 0.200   -3.745   0.00810   -0.1300    24.7      0.9659       4
+ 0.400   -1.987   0.00675   -0.1315    59.3      0.9562       3
+ 0.600   -0.235   0.00671   -0.1322    89.5      0.9604       3
+ 0.800    1.555   0.00712   -0.1322   112.3      0.9650       4
+ 1.000    3.473   0.00744   -0.1295   134.4      0.9653       4
+ 1.200    5.400   0.00899   -0.1272   133.5      0.9774       3
+ 1.400    7.471   0.01131   -0.1224   123.8      0.9809       4
+ 1.600   10.183   0.01616   -0.1075    99.0      0.9819       5
+```
+
+Each point converges to a residual of $10^{-12}$ in three to five Newton
+iterations. That
+is the quadratic convergence you get only with exact derivatives, because the
+network is smooth and its partials are exact. The sweep is the drag polar
+indexed by lift instead of by angle: the best lift-to-drag ratio, about 134,
+is near $C_L = 1.0$, and the drag rises quickly above 1.2 as the polar
+approaches stall (compare the [polar sweep](./polar.mdx)).
+
+## Step 5: Differentiate the solved model
+
+`compute_totals` differentiates through the Newton solve. The derivatives
+include the change in `alpha` that keeps the lift on target:
+
+```python title="examples/openmdao/analyze.py (abridged)"
+prob.set_val("CL_target", 1.0)
+prob.run_model()
+totals = prob.compute_totals(of=["CD", "alpha"], wrt=["upper_weights"])
+```
+
+For comparison, the script also asks the bare client for the partial at the
+same angle, which holds the angle fixed and lets the lift change. It then
+checks one fixed-lift derivative against a central difference, re-solving the
+model on each side:
+
+```text
+Shape derivatives at CL = 1.0 (alpha = 3.473 deg)
+  dalpha/d(upper_weights):            -0.5413   0.6214  -1.9477  -5.1457  -4.9511  -2.7222  -1.5718  -2.2425
+  dCD/d(upper_weights), fixed CL:      0.00713   0.01595   0.00329  -0.01298  -0.01226  -0.00190   0.00318   0.00167
+  dCD/d(upper_weights), fixed alpha:   0.00738   0.01566   0.00420  -0.01058  -0.00995  -0.00063   0.00391   0.00272
+
+  dCD/d(upper_weights[3]) at fixed CL: analytic -1.298280e-02, central difference -1.298280e-02
+```
+
+**The two drag derivatives answer different questions.** At fixed angle,
+thickening the upper surface around mid-chord (weights 3 and 4) adds lift as
+well as changing drag. At fixed lift, the extra lift is traded for a lower
+angle: about 5° less per unit weight, as the first row shows. The lower angle
+saves drag, so the fixed-lift derivative is more negative, by about a quarter
+for those weights. When you design an airfoil for a given flight condition,
+the fixed-lift derivative is the one you want.
+
+**The check agrees to all seven digits shown.** OpenMDAO assembles the
+fixed-lift derivative from Bora's partials by the implicit function theorem,
+without re-solving, and it matches the finite difference of the complete
+solve.
+
+## The complete script
+
+<CodeBlock language="python" title="examples/openmdao/analyze.py" showLineNumbers>
+    {analyze}
+</CodeBlock>
