@@ -74,7 +74,9 @@ jobs:
           load: true
           tags: bora-ci:${{ matrix.arch }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
-          cache-to: type=gha,scope=docker-${{ matrix.arch }},mode=max
+          # A merged PR (release.yml) gets a read-only cache token; a failed cache
+          # write must not fail the build.
+          cache-to: type=gha,scope=docker-${{ matrix.arch }},mode=max,ignore-error=true
 
       - uses: actions/setup-python@v6
         with:
