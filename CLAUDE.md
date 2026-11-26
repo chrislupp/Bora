@@ -31,6 +31,10 @@ cargo run --release --example example
 cargo run --release --example polar
 cargo run --release --example compressible
 
+# Analysis over Philote: a bare Philote-Python client, then an OpenMDAO fixed-lift solve
+# (needs openmdao and philote-mdo; start bora_server first, see the script's docstring)
+python3 examples/openmdao/analyze.py
+
 # OpenMDAO + IPOPT over Philote (needs openmdao, philote-mdo, pyoptsparse with IPOPT;
 # starts bora_server itself)
 python3 examples/openmdao/optimize_daedalus.py

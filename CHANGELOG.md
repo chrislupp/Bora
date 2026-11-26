@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Example `examples/openmdao/analyze.py` and docs page "Analysis over Philote": calls
+  `bora_server` from Python with the bare Philote-Python client, then flies the airfoil at a
+  fixed lift coefficient in OpenMDAO (BalanceComp and Newton on Bora's partials) and checks the
+  fixed-lift shape derivatives against central differences
 ### Fixed
 
 - Publish workflow: authenticate with crates.io trusted publishing first and fall back to the

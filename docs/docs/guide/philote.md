@@ -91,7 +91,9 @@ The same holds for `include_corrections`, which needs the edge velocities and
 so always takes the full forward-mode path. The discipline has no
 control-surface inputs; use the Rust API for those.
 
-For a complete OpenMDAO model that drives the server with IPOPT, see
+For a walk-through that calls the server from Python, both directly and from
+an OpenMDAO model, see [Analysis over Philote](../examples/philote.mdx). For a
+complete OpenMDAO model that drives the server with IPOPT, see
 [Multipoint optimization](../examples/openmdao.mdx).
 
 ## Embedding the discipline
