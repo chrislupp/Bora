@@ -120,6 +120,13 @@ client (e.g. OpenMDAO via Philote-Python) over gRPC:
 cargo run --release --features philote --bin bora_server [address]  # default localhost:50051
 ```
 
+Or run the published Docker image (linux/amd64 and linux/arm64; `latest` is the newest
+release, `next` tracks `develop`), which needs no Rust toolchain:
+
+```bash
+docker run -d --rm --name bora -p 50051:50051 chrislupp/bora:latest
+```
+
 Options: `model_size` (str, default `"xlarge"`), `data_directory` (str), and
 `include_boundary_layer` (bool, default `false`).
 

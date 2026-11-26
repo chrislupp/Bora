@@ -28,8 +28,8 @@ number of 10⁶. No optimizer is involved; for that, see
 ## Before you start
 
 You need OpenMDAO and Philote-Python (`philote-mdo` on PyPI), both listed in
-`examples/openmdao/requirements.txt`, and a Rust toolchain to build the
-server:
+`examples/openmdao/requirements.txt`, and either a Rust toolchain to build the
+server or Docker to run its image:
 
 ```bash
 pip install -r examples/openmdao/requirements.txt
@@ -44,7 +44,12 @@ cargo run --release --features philote --bin bora_server
 ```
 
 The first run builds the server. It then listens on `localhost:50051` until
-you stop it. Every client in this example talks to that one process. The
+you stop it. Without a Rust toolchain, run the
+[Docker image](../guide/philote.md#run-it-in-docker) instead:
+
+<DockerRun />
+
+Either way, the server listens on the same port. Every client in this example talks to that one process. The
 options, such as the network size, belong to the server, so clients that
 share a server should agree on them.
 

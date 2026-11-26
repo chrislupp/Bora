@@ -30,6 +30,44 @@ The build needs no system gRPC or protobuf installation; the
 [`philote-mdo`](https://github.com/MDO-Standards/Philote-Rust) crate that Bora
 builds on brings its own.
 
+## Run it in Docker
+
+The server is also published as a Docker image,
+[`chrislupp/bora`](https://hub.docker.com/r/chrislupp/bora), so you can use
+it without a Rust toolchain:
+
+<DockerRun />
+
+The container serves on port 50051 like a local server, so clients connect
+to `localhost:50051` unchanged. Stop it with `docker stop bora`.
+
+<TableCaption>Tags of the Docker image.</TableCaption>
+
+| Tag | Tracks | Updated |
+|-----|--------|---------|
+| `<version>`, for example `0.4.0` | That release | Never |
+| `<major>.<minor>`, `<major>`, `latest` | The newest stable release in that series | On each stable release |
+| `next` | The `develop` branch | On each push to `develop` whose image passes the smoke test |
+
+Pin a version tag rather than `latest`, so your results do not change under
+you. The command above uses the tag that matches the documentation you are
+reading. `next` moves with `develop`, so pull it again before each run
+(`docker pull chrislupp/bora:next`).
+
+The image is built for `linux/amd64` and `linux/arm64`, so it runs natively on
+Apple silicon as well as on x86-64, where the server picks its AVX2 and FMA
+kernels at run time. It holds every network size, runs as a non-root user and
+reads the weights from the directory named by `BORA_DATA_DIR`, so the
+`data_directory` option is only needed for weights you mount into the
+container yourself.
+
+To build the image from a checkout:
+
+```bash
+docker build -f docker/Dockerfile -t bora .
+docker run --rm -p 50051:50051 bora
+```
+
 ## Variables
 
 Variable names keep NeuralFoil's capitalization (`CL`, `Re`, `Top_Xtr`), so a

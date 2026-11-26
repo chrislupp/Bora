@@ -1,0 +1,96 @@
+name: Docker image
+
+# Reusable: builds the bora_server image (docker/Dockerfile) natively for
+# linux/amd64 and linux/arm64, smoke-tests each through Philote-Python
+# (scripts/smoke_image.sh), and uploads every tested image as a `docker save`
+# archive (artifact docker-image-<arch>). Nothing is pushed here: callers
+# publish the archives unchanged with scripts/publish_image.sh, and only once
+# every platform has passed.
+#
+# Called by docker.yml (branches, `next`) and release.yml (release images, built
+# from the prepared release commit before it is tagged or pushed).
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit to check out (default: the triggering commit)"
+        type: string
+        default: ""
+      bundle:
+        description: >
+          Artifact holding release.bundle, a git bundle of the prepared release
+          commit on top of `ref`; when set, the image is built from that commit
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Build and test (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          # Full history, so the bundle's prerequisite commit is present.
+          fetch-depth: 0
+
+      - name: Download the prepared release commit
+        if: inputs.bundle != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.bundle }}
+          path: ${{ runner.temp }}/bundle
+
+      - name: Check out the prepared release commit
+        if: inputs.bundle != ''
+        run: |
+          git fetch "$RUNNER_TEMP/bundle/release.bundle" main
+          git checkout --detach FETCH_HEAD
+          git log -1 --oneline
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: bora-ci:${{ matrix.arch }}
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,scope=docker-${{ matrix.arch }},mode=max
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Smoke-test the image
+        run: |
+          python3 -m pip install --quiet philote-mdo==0.9.0
+          bash scripts/smoke_image.sh bora-ci:${{ matrix.arch }}
+
+      - name: Save the tested image
+        run: docker save bora-ci:${{ matrix.arch }} -o "$RUNNER_TEMP/bora-${{ matrix.arch }}.tar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-${{ matrix.arch }}
+          path: ${{ runner.temp }}/bora-${{ matrix.arch }}.tar
+          if-no-files-found: error
+          retention-days: 1

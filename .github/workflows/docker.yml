@@ -1,0 +1,57 @@
+name: Docker
+
+# Builds and smoke-tests the bora_server image for linux/amd64 and linux/arm64
+# (docker-image.yml) on every push and pull request. Pushes to develop then
+# publish the tested images, unchanged, as chrislupp/bora:next.
+#
+# Release images (the version, X.Y, X and latest tags) are not published here:
+# release.yml builds and tests them from the prepared release commit and
+# refuses to tag the release unless both platforms pass, as Scirocco does.
+#
+# Needs the repository secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (a Docker
+# Hub personal access token with Read & Write scope).
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+# Pushes to a branch run one at a time, so an older develop run can never
+# overwrite a newer `next`. Superseded PR runs are cancelled.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    uses: ./.github/workflows/docker-image.yml
+
+  publish:
+    name: Publish next
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: docker-image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+
+      - uses: imjasonh/setup-crane@v0.4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish the tested images as next
+        run: bash scripts/publish_image.sh chrislupp/bora "$RUNNER_TEMP/images" next
