@@ -4,14 +4,13 @@ name: Publish to crates.io
 # Pre-releases are skipped: the release workflow leaves the pre-release qualifier
 # out of Cargo.toml, so publishing one would claim the final version number.
 #
-# Authentication uses crates.io trusted publishing (OIDC). crates.io only offers it
-# for crates that already exist, so the very first publish uses an API token:
-#   1. Before the first release, store a crates.io API token (scope: publish-new,
-#      publish-update) as the CARGO_REGISTRY_TOKEN secret of the crates-io environment.
-#   2. After it publishes, add a trusted publisher on crates.io (crate settings ->
-#      Trusted Publishing: repository chrislupp/Bora, workflow publish.yml,
-#      environment crates-io), then delete the secret and revoke the token.
-# While the secret exists it is used; once removed, the OIDC exchange takes over.
+# Authentication tries crates.io trusted publishing (OIDC) first and falls back to
+# the CARGO_REGISTRY_TOKEN secret (repository or crates-io environment) only if the OIDC
+# exchange fails. A stale or revoked token therefore cannot block a release once
+# trusted publishing is set up (v0.3.0 failed with 403 because the bootstrap token
+# was still preferred over OIDC). Trusted publisher on crates.io (crate settings ->
+# Trusted Publishing): repository chrislupp/Bora, workflow publish.yml, environment
+# crates-io. Once it works, delete the secret and revoke the token.
 
 on:
   release:
@@ -54,26 +53,28 @@ jobs:
     - name: Test
       run: cargo test --all-features
 
-    # Environment secrets are only visible inside the job, so check for the
-    # bootstrap token in a step.
-    - name: Check for a bootstrap token
-      id: bootstrap
-      env:
-        TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-      run: |
-        if [ -n "$TOKEN" ]; then
-          echo "::notice::Using the CARGO_REGISTRY_TOKEN secret; delete it once trusted publishing is set up."
-          echo "token=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "token=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Authenticate with crates.io
-      if: steps.bootstrap.outputs.token != 'true'
+    - name: Authenticate with crates.io (trusted publishing)
       id: auth
+      continue-on-error: true
       uses: rust-lang/crates-io-auth-action@v1
+
+    - name: Select the registry token
+      env:
+        OIDC_TOKEN: ${{ steps.auth.outputs.token }}
+        SECRET_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: |
+        if [ -n "$OIDC_TOKEN" ]; then
+          echo "Using trusted publishing."
+          TOKEN="$OIDC_TOKEN"
+        elif [ -n "$SECRET_TOKEN" ]; then
+          echo "::warning::Trusted publishing failed; falling back to the CARGO_REGISTRY_TOKEN secret."
+          TOKEN="$SECRET_TOKEN"
+        else
+          echo "::error::Trusted publishing failed and no CARGO_REGISTRY_TOKEN secret is set. Add a trusted publisher on crates.io (repository chrislupp/Bora, workflow publish.yml, environment crates-io)."
+          exit 1
+        fi
+        echo "::add-mask::$TOKEN"
+        echo "CARGO_REGISTRY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
     - name: Publish
       run: cargo publish
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}

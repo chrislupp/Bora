@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Example `examples/openmdao/analyze.py` and docs page "Analysis over Philote": calls
+  `bora_server` from Python with the bare Philote-Python client, then flies the airfoil at a
+  fixed lift coefficient in OpenMDAO (BalanceComp and Newton on Bora's partials) and checks the
+  fixed-lift shape derivatives against central differences
+- Docker image of the Philote server, `chrislupp/bora` on Docker Hub (`docker/Dockerfile`,
+  linux/amd64 and linux/arm64). Both platforms are built natively and smoke-tested through
+  Philote-Python (`scripts/smoke_image.sh`), and the tested images are published unchanged
+  (`scripts/publish_image.sh`): `next` from `develop`, and the version, series and `latest`
+  tags for releases
+- Philote discipline option `control_surface_hinge_points` (with `include_corrections`): one
+  control surface per hinge point, deflected by the new `control_surface_deflections` input
+  (deg), with analytic partials of every output including the boundary layer. The
+  "Analysis over Philote" example (`examples/openmdao/analyze.py`) gains a third part in which
+  a flap holds the lift at a fixed angle, compared with holding it by the angle
+
+### Changed
+
+- **Breaking:** `Error`, `ModelSize` and the output types (`AeroOutput`, `AeroScalars`,
+  `BoundaryLayerData`, the gradient, tangent and result types, `CorrectedOutput`,
+  `CorrectedGradients`, `CorrectedResult`, `FittedAirfoil`, `NormalizedCoordinates`) are
+  `#[non_exhaustive]`, so later releases can add variants and fields without a major version.
+  Outside the crate, match `Error` and `ModelSize` with a wildcard arm, destructure outputs with
+  `..`, and build them from `Default`. The input types stay exhaustive
+- **Breaking:** the `source` of `Error::Open` is a boxed `dyn std::error::Error` instead of
+  `hdf5_pure::Error`, so the HDF5 reader is no longer part of the public API and can be upgraded
+  in a minor release
+
+- Release workflow: builds and smoke-tests the Docker image from the prepared release commit
+  before tagging, and pushes nothing (commit, tag, images, GitHub Release, crates.io) unless
+  both platforms pass; it also refuses to release if `main` moved after the merge
+
+### Fixed
+
+- Publish workflow: authenticate with crates.io trusted publishing first and fall back to the
+  `CARGO_REGISTRY_TOKEN` secret only if that fails; v0.3.0 failed with 403 because the stale
+  bootstrap token was preferred over trusted publishing
+
 ## [0.3.0] - 2026-11-25
 
 ### Added

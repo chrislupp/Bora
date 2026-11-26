@@ -90,6 +90,7 @@ pub fn read_dat_file(path: impl AsRef<Path>) -> Result<Vec<Point2>> {
 /// that was applied (translation, then scaling, then rotation about the
 /// leading edge).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NormalizedCoordinates {
     /// The coordinates with the leading edge at (0, 0) and the trailing edge
     /// at (1, 0).
@@ -185,6 +186,7 @@ pub fn normalize_coordinates(coordinates: &[Point2]) -> Result<NormalizedCoordin
 /// # Ok::<(), bora::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct FittedAirfoil {
     /// Kulfan parameters of the normalized airfoil.
     pub kulfan: KulfanParameters,

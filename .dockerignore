@@ -1,0 +1,13 @@
+# Only the crate sources and the weights go into the build context.
+.git
+.github
+.cache
+.idea
+.vscode
+target
+docs
+docker
+scripts
+**/__pycache__
+**/.DS_Store
+optimized_daedalus.dat

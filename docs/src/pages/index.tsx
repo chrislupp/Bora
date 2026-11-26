@@ -47,6 +47,7 @@ const CONTENTS: [id: string, label: string][] = [
     ["background/how-it-works", "How NeuralFoil works"],
     ["background/accuracy-and-limits", "Accuracy and limits"],
     ["examples/polar", "Polar sweep"],
+    ["examples/philote", "Analysis over Philote"],
     ["examples/openmdao", "Multipoint optimization"],
     ["api/index", "API overview"],
     ["references", "References"],

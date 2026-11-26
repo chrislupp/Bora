@@ -52,7 +52,7 @@ fn main() -> bora::Result<()> {
 
     for step in 0..=13 {
         let alpha = -8.0 + 2.0 * step as f64;
-        let AeroScalarResult { output, gradient } =
+        let AeroScalarResult { output, gradient, .. } =
             model.analyze_scalars_with_gradients(&AeroInput { alpha, ..input });
         println!(
             "{alpha:>6.1}  {:>8.4}  {:>8.5}  {:>7.3}  {:>10.5}  {:>10.4}",
