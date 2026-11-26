@@ -1,0 +1,53 @@
+{
+  "docsSidebar": [
+    {
+      "type": "category",
+      "label": "Getting started",
+      "collapsible": false,
+      "items": [
+        "intro",
+        "getting-started/installation",
+        "getting-started/quickstart"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Guide",
+      "collapsible": false,
+      "items": [
+        "guide/geometry",
+        "guide/analysis",
+        "guide/corrections",
+        "guide/gradients",
+        "guide/confidence",
+        "guide/model-sizes",
+        "guide/deployment",
+        "guide/philote"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Background",
+      "collapsible": false,
+      "items": [
+        "background/how-it-works",
+        "background/accuracy-and-limits"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Examples",
+      "collapsible": false,
+      "items": [
+        "examples/analysis",
+        "examples/polar",
+        "examples/philote",
+        "examples/openmdao"
+      ]
+    },
+    "references"
+  ],
+  "apiSidebar": [
+    "api/index"
+  ]
+}

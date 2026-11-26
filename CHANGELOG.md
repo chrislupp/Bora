@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-26
+
 ### Added
 
 - Example `examples/openmdao/analyze.py` and docs page "Analysis over Philote": calls
@@ -252,5 +254,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ^11.1.1 (GHSA-w5hq-g745-h8pq); `npm audit` reports no vulnerabilities
 [0.1.0]: https://github.com/chrislupp/Bora/releases/tag/v0.1.0
 [0.2.0]: https://github.com/chrislupp/Bora/releases/tag/v0.2.0
-[Unreleased]: https://github.com/chrislupp/Bora/compare/v0.3.0...HEAD
 [0.3.0]: https://github.com/chrislupp/Bora/releases/tag/v0.3.0
+[Unreleased]: https://github.com/chrislupp/Bora/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/chrislupp/Bora/releases/tag/v0.4.0
